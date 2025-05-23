@@ -3,12 +3,17 @@ name: kv test
 on: [push, pull_request]
 
 jobs:
-  go-test-container:
+  cpp-test-container:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
+      - name: Run C++ test in Docker container
+        run: make cpp-test-container
+  go-test-container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
       - name: Run Go test in Docker container
         run: make go-test-container
