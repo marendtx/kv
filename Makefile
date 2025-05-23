@@ -4,7 +4,10 @@ cpp-test-local:
 	cd cpp && cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build
 
 cpp-test-container:
-	cd cpp && docker build -f cpp.test.Dockerfile -t cpp-test . && docker run cpp-test
+	cd cpp && docker build --target test -t cpp-test -f Dockerfile . && docker run cpp-test
+
+cpp-run-container:
+	cd cpp && docker build --target app -t cpp-app -f Dockerfile . && docker run cpp-app
 
 go-test-local:
 	cd go && go test -v ./...
