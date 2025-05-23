@@ -6,4 +6,4 @@ jobs:
   say-hello:
     runs-on: ubuntu-latest
     steps:
-    - echo "hello"
+    - run: echo "hello"
