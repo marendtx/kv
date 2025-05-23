@@ -1,4 +1,6 @@
-all: go-test-local go-test-container go-run-local go-run-container
+test-local: cpp-test-local go-test-local
+
+test-container: cpp-test-container go-test-container
 
 cpp-test-local:
 	cd cpp && cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build
