@@ -8,6 +8,9 @@ cpp-test-local:
 cpp-test-container:
 	cd cpp && docker build --target test -t cpp-test -f Dockerfile . && docker run cpp-test
 
+cpp-run-local:
+	cd cpp && cmake -S . -B build && cmake --build build && ./build/myapp && rm -rf build
+
 cpp-run-container:
 	cd cpp && docker build --target app -t cpp-app -f Dockerfile . && docker run cpp-app
 
