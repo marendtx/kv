@@ -1,9 +1,14 @@
-name: Hello
+name: kv test
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
-  say-hello:
+  go-test-container:
     runs-on: ubuntu-latest
+
     steps:
-    - run: echo "hello"
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run Go test in Docker container
+        run: make go-test-container
