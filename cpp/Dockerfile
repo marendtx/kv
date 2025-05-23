@@ -9,7 +9,6 @@ COPY . .
 RUN cmake -S . -B build && cmake --build build
 
 FROM base AS test
-# RUN cmake -S . -B build && cmake --build build
 CMD ["ctest", "--test-dir", "build", "--output-on-failure"]
 
 FROM debian:bookworm-slim AS app
