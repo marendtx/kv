@@ -74,3 +74,67 @@ TEST_F(BPlusTreeTest, SaveAndLoadTree) {
         EXPECT_TRUE(tree2.search(toBytes("one")).empty());
     }
 }
+
+TEST_F(BPlusTreeTest, InsertManyAndSearchAll) {
+    BPlusTree tree;
+    const int N = 500;
+    for (int i = 0; i < N; ++i) {
+        tree.insert(toBytes("key" + std::to_string(i)), toBytes("val" + std::to_string(i)));
+    }
+
+    for (int i = 0; i < N; ++i) {
+        EXPECT_EQ(fromBytes(tree.search(toBytes("key" + std::to_string(i)))), "val" + std::to_string(i));
+    }
+}
+
+TEST_F(BPlusTreeTest, DeleteCausesMerge) {
+    BPlusTree tree;
+    for (int i = 0; i < 20; ++i) // データ数増やす
+        tree.insert(toBytes("k" + std::to_string(i)), toBytes("v" + std::to_string(i)));
+
+    // リーフ分割 → 削除によって再マージを誘発
+    for (int i = 5; i <= 14; ++i)
+        tree.remove(toBytes("k" + std::to_string(i)));
+
+    for (int i = 5; i <= 14; ++i)
+        EXPECT_TRUE(tree.search(toBytes("k" + std::to_string(i))).empty()) << "Key k" << i << " should be gone";
+
+    EXPECT_EQ(fromBytes(tree.search(toBytes("k4"))), "v4");
+    EXPECT_EQ(fromBytes(tree.search(toBytes("k15"))), "v15");
+}
+
+TEST_F(BPlusTreeTest, DuplicateKeyInsertOverwrites) {
+    BPlusTree tree;
+    tree.insert(toBytes("dup"), toBytes("one"));
+    tree.insert(toBytes("dup"), toBytes("two")); // overwrite behavior expected?
+
+    // 現在の実装では重複キーは追加される → search は最初の一致を返す
+    // overwrite にするなら search → remove → insert に変える必要あり
+    EXPECT_EQ(fromBytes(tree.search(toBytes("dup"))), "one"); // 今の仕様ではこうなる
+}
+
+TEST_F(BPlusTreeTest, EdgeCaseEmptyKey) {
+    BPlusTree tree;
+    ByteArray empty;
+    tree.insert(empty, toBytes("value"));
+    EXPECT_EQ(fromBytes(tree.search(empty)), "value");
+
+    tree.remove(empty);
+    EXPECT_TRUE(tree.search(empty).empty());
+}
+
+TEST_F(BPlusTreeTest, PersistenceWithManyKeys) {
+    {
+        BPlusTree tree;
+        for (int i = 0; i < 100; ++i)
+            tree.insert(toBytes("key" + std::to_string(i)), toBytes("val" + std::to_string(i)));
+        tree.saveTree(testDir);
+    }
+
+    {
+        BPlusTree tree2;
+        tree2.loadTree(testDir);
+        for (int i = 0; i < 100; ++i)
+            EXPECT_EQ(fromBytes(tree2.search(toBytes("key" + std::to_string(i)))), "val" + std::to_string(i));
+    }
+}

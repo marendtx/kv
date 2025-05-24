@@ -87,75 +87,128 @@ int BPlusTree::createPage(bool isLeaf) {
     pageCache[id] = new Page(id, isLeaf);
     return id;
 }
-void BPlusTree::rebalanceAfterDeletion(Page *cursor, int cursorID) {
-    if (cursorID == rootPageID) {
-        if (!cursor->isLeaf && cursor->childrenIDs.size() == 1) {
-            rootPageID = cursor->childrenIDs[0];
-            freeList.insert(cursorID);
-            pageCache.erase(cursorID);
-            delete cursor;
+void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
+    if (nodeID == rootPageID) {
+        if (!node->isLeaf && node->childrenIDs.size() == 1) {
+            rootPageID = node->childrenIDs[0];
+            freeList.insert(nodeID);
+            pageCache.erase(nodeID);
+            delete node;
         }
         return;
     }
 
-    if (cursor->keys.size() >= (ORDER + 1) / 2)
+    int minKeys = (ORDER + 1) / 2;
+    if (node->keys.size() >= minKeys)
         return;
 
-    int parentID = findParentPageID(rootPageID, cursorID);
+    int parentID = findParentPageID(rootPageID, nodeID);
     Page *parent = getPage(parentID);
-    int index = 0;
-    while (index < parent->childrenIDs.size() && parent->childrenIDs[index] != cursorID)
-        ++index;
 
-    int leftID = (index > 0) ? parent->childrenIDs[index - 1] : -1;
-    int rightID = (index + 1 < parent->childrenIDs.size()) ? parent->childrenIDs[index + 1] : -1;
+    int idx = 0;
+    while (idx < parent->childrenIDs.size() && parent->childrenIDs[idx] != nodeID)
+        idx++;
 
-    Page *sibling = nullptr;
-    int siblingID = -1;
-    bool isLeft = false;
+    int leftID = (idx > 0) ? parent->childrenIDs[idx - 1] : -1;
+    int rightID = (idx + 1 < parent->childrenIDs.size()) ? parent->childrenIDs[idx + 1] : -1;
 
-    if (leftID != -1 && getPage(leftID)->keys.size() > (ORDER + 1) / 2) {
-        sibling = getPage(leftID);
-        siblingID = leftID;
-        isLeft = true;
-    } else if (rightID != -1 && getPage(rightID)->keys.size() > (ORDER + 1) / 2) {
-        sibling = getPage(rightID);
-        siblingID = rightID;
-        isLeft = false;
-    } else {
-        // マージ
-        if (leftID != -1) {
-            sibling = getPage(leftID);
-            siblingID = leftID;
-            isLeft = true;
-        } else if (rightID != -1) {
-            sibling = getPage(rightID);
-            siblingID = rightID;
-            isLeft = false;
-        }
+    if (leftID != -1) {
+        Page *left = getPage(leftID);
 
-        if (sibling) {
-            if (isLeft) {
-                sibling->keys.insert(sibling->keys.end(), cursor->keys.begin(), cursor->keys.end());
-                sibling->values.insert(sibling->values.end(), cursor->values.begin(), cursor->values.end());
-                sibling->nextLeafID = cursor->nextLeafID;
+        if (left->keys.size() > minKeys) {
+            // ✅ 左から借用
+            if (node->isLeaf) {
+                node->keys.insert(node->keys.begin(), left->keys.back());
+                node->values.insert(node->values.begin(), left->values.back());
+                left->keys.pop_back();
+                left->values.pop_back();
+
+                // 親キー更新（左の最後のキー → 現ノードの最初のキー）
+                parent->keys[idx - 1] = node->keys[0];
             } else {
-                cursor->keys.insert(cursor->keys.end(), sibling->keys.begin(), sibling->keys.end());
-                cursor->values.insert(cursor->values.end(), sibling->values.begin(), sibling->values.end());
-                cursor->nextLeafID = sibling->nextLeafID;
+                node->keys.insert(node->keys.begin(), parent->keys[idx - 1]);
+                node->childrenIDs.insert(node->childrenIDs.begin(), left->childrenIDs.back());
+
+                parent->keys[idx - 1] = left->keys.back();
+
+                left->keys.pop_back();
+                left->childrenIDs.pop_back();
             }
-
-            freeList.insert(isLeft ? cursorID : siblingID);
-            pageCache.erase(isLeft ? cursorID : siblingID);
-            delete (isLeft ? cursor : sibling);
-
-            parent->keys.erase(parent->keys.begin() + (isLeft ? index - 1 : index));
-            parent->childrenIDs.erase(parent->childrenIDs.begin() + (isLeft ? index : index + 1));
-
-            if (parentID != rootPageID && parent->keys.size() < (ORDER + 1) / 2) {
-                rebalanceAfterDeletion(parent, parentID);
-            }
+            return;
         }
+    }
+
+    if (rightID != -1) {
+        Page *right = getPage(rightID);
+
+        if (right->keys.size() > minKeys) {
+            // ✅ 右から借用
+            if (node->isLeaf) {
+                node->keys.push_back(right->keys.front());
+                node->values.push_back(right->values.front());
+                right->keys.erase(right->keys.begin());
+                right->values.erase(right->values.begin());
+
+                parent->keys[idx] = right->keys.front();
+            } else {
+                node->keys.push_back(parent->keys[idx]);
+                node->childrenIDs.push_back(right->childrenIDs.front());
+
+                parent->keys[idx] = right->keys.front();
+
+                right->keys.erase(right->keys.begin());
+                right->childrenIDs.erase(right->childrenIDs.begin());
+            }
+            return;
+        }
+    }
+
+    // ✅ 借用不可 → マージ処理へ
+    if (leftID != -1) {
+        Page *left = getPage(leftID);
+        if (node->isLeaf) {
+            left->keys.insert(left->keys.end(), node->keys.begin(), node->keys.end());
+            left->values.insert(left->values.end(), node->values.begin(), node->values.end());
+            left->nextLeafID = node->nextLeafID;
+        } else {
+            left->keys.push_back(parent->keys[idx - 1]);
+            left->keys.insert(left->keys.end(), node->keys.begin(), node->keys.end());
+            left->childrenIDs.insert(left->childrenIDs.end(), node->childrenIDs.begin(), node->childrenIDs.end());
+        }
+
+        parent->keys.erase(parent->keys.begin() + idx - 1);
+        parent->childrenIDs.erase(parent->childrenIDs.begin() + idx);
+
+        freeList.insert(nodeID);
+        pageCache.erase(nodeID);
+        delete node;
+
+        if (parentID != rootPageID && parent->keys.size() < minKeys)
+            rebalanceAfterDeletion(parent, parentID);
+        return;
+    }
+
+    if (rightID != -1) {
+        Page *right = getPage(rightID);
+        if (node->isLeaf) {
+            node->keys.insert(node->keys.end(), right->keys.begin(), right->keys.end());
+            node->values.insert(node->values.end(), right->values.begin(), right->values.end());
+            node->nextLeafID = right->nextLeafID;
+        } else {
+            node->keys.push_back(parent->keys[idx]);
+            node->keys.insert(node->keys.end(), right->keys.begin(), right->keys.end());
+            node->childrenIDs.insert(node->childrenIDs.end(), right->childrenIDs.begin(), right->childrenIDs.end());
+        }
+
+        parent->keys.erase(parent->keys.begin() + idx);
+        parent->childrenIDs.erase(parent->childrenIDs.begin() + idx + 1);
+
+        freeList.insert(rightID);
+        pageCache.erase(rightID);
+        delete right;
+
+        if (parentID != rootPageID && parent->keys.size() < minKeys)
+            rebalanceAfterDeletion(parent, parentID);
     }
 }
 
