@@ -17,6 +17,7 @@ find_package(GTest REQUIRED)
 
 add_executable(runTests
     test/test_main.cpp
+    test/test_bplustree.cpp
     src/mylib.cpp
 )
 target_include_directories(runTests PRIVATE include)
