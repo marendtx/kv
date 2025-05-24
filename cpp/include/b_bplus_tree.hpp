@@ -6,6 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <set>
+#include <stdexcept> // 追加
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,9 +25,16 @@ bool byteKeyLess(const ByteArray &a, const ByteArray &b) {
 ByteArray readBytes(std::ifstream &ifs) {
     int len;
     ifs.read(reinterpret_cast<char *>(&len), sizeof(int));
+    if (!ifs || len < 0) { // [Error Handling Added]
+        throw std::runtime_error("Invalid byte array length or read error.");
+    }
     ByteArray data(len);
-    if (len > 0)
+    if (len > 0) {
         ifs.read(reinterpret_cast<char *>(data.data()), len);
+        if (!ifs) { // [Error Handling Added]
+            throw std::runtime_error("Failed to read byte array data.");
+        }
+    }
     return data;
 }
 
@@ -37,7 +45,7 @@ struct Page {
     std::vector<ByteArray> values;
     std::vector<int> childrenIDs;
     int nextLeafID = -1;
-    int parentID = -1; // 親IDを追加
+    int parentID = -1;
 
     Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
 };
@@ -72,7 +80,7 @@ public:
     void traverse();
 };
 
-// --- destructor (メモリ解放) ---
+// --- destructor ---
 BPlusTree::~BPlusTree() {
     for (auto &[id, page] : pageCache) {
         delete page;
@@ -80,7 +88,6 @@ BPlusTree::~BPlusTree() {
     pageCache.clear();
 }
 
-// --- 子ノード全ての親IDをセット ---
 void BPlusTree::setChildrenParentIDs(Page *parent) {
     for (int cid : parent->childrenIDs) {
         Page *child = getPage(cid);
@@ -89,7 +96,6 @@ void BPlusTree::setChildrenParentIDs(Page *parent) {
     }
 }
 
-// --- コンストラクタ ---
 BPlusTree::BPlusTree() {
     rootPageID = createPage(true, -1);
 }
@@ -114,7 +120,6 @@ Page *BPlusTree::getPage(int id) {
     return pageCache[id];
 }
 
-// 親IDを高速参照
 int BPlusTree::findParentPageID(int currentID, int childID) {
     Page *child = getPage(childID);
     if (!child)
@@ -122,7 +127,6 @@ int BPlusTree::findParentPageID(int currentID, int childID) {
     return child->parentID;
 }
 
-// 内部ノードへの挿入
 void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
     Page *parent = getPage(parentID);
     int pos = 0;
@@ -132,14 +136,12 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     parent->keys.insert(parent->keys.begin() + pos, key);
     parent->childrenIDs.insert(parent->childrenIDs.begin() + pos + 1, newChildID);
 
-    // 新しい子にも親IDをセット
     Page *newChild = getPage(newChildID);
     newChild->parentID = parent->pageID;
 
     if (parent->keys.size() < ORDER)
         return;
 
-    // 分割処理
     int mid = (ORDER + 1) / 2;
     int newInternalID = createPage(false, parent->parentID);
     Page *newInternal = getPage(newInternalID);
@@ -151,7 +153,6 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     parent->keys.resize(mid);
     parent->childrenIDs.resize(mid + 1);
 
-    // 新ノードの子の親IDもセット
     setChildrenParentIDs(newInternal);
     setChildrenParentIDs(parent);
 
@@ -173,7 +174,6 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     }
 }
 
-// 削除後のバランス修正
 void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (nodeID == rootPageID) {
         if (!node->isLeaf && node->childrenIDs.size() == 1) {
@@ -204,7 +204,6 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (leftID != -1) {
         Page *left = getPage(leftID);
         if (left->keys.size() > minKeys) {
-            // 左から借用
             if (node->isLeaf) {
                 node->keys.insert(node->keys.begin(), left->keys.back());
                 node->values.insert(node->values.begin(), left->values.back());
@@ -231,7 +230,6 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (rightID != -1) {
         Page *right = getPage(rightID);
         if (right->keys.size() > minKeys) {
-            // 右から借用
             if (node->isLeaf) {
                 node->keys.push_back(right->keys.front());
                 node->values.push_back(right->values.front());
@@ -255,7 +253,6 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
         }
     }
 
-    // マージ
     if (leftID != -1) {
         Page *left = getPage(leftID);
         if (node->isLeaf) {
@@ -309,9 +306,12 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
 void BPlusTree::writePageToDisk(Page *page) {
     std::string filename = directory + "/page_" + std::to_string(page->pageID) + ".bin";
     std::ofstream ofs(filename, std::ios::binary);
+    if (!ofs) { // [Error Handling Added]
+        throw std::runtime_error("Failed to open file for writing: " + filename);
+    }
     ofs.write(reinterpret_cast<char *>(&page->pageID), sizeof(int));
     ofs.write(reinterpret_cast<char *>(&page->isLeaf), sizeof(bool));
-    ofs.write(reinterpret_cast<char *>(&page->parentID), sizeof(int)); // parentID保存
+    ofs.write(reinterpret_cast<char *>(&page->parentID), sizeof(int));
     int keyCount = page->keys.size();
     ofs.write(reinterpret_cast<char *>(&keyCount), sizeof(int));
     for (const auto &k : page->keys) {
@@ -336,37 +336,61 @@ void BPlusTree::writePageToDisk(Page *page) {
         }
     }
     ofs.close();
+    if (!ofs) { // [Error Handling Added]
+        throw std::runtime_error("Failed to finish writing page file: " + filename);
+    }
 }
 
 Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
     std::string filename = dir + "/page_" + std::to_string(pageID) + ".bin";
     std::ifstream ifs(filename, std::ios::binary);
+    if (!ifs) { // [Error Handling Added]
+        throw std::runtime_error("Failed to open file for reading: " + filename);
+    }
     int id;
     bool isLeaf;
     int parentID;
     ifs.read(reinterpret_cast<char *>(&id), sizeof(int));
     ifs.read(reinterpret_cast<char *>(&isLeaf), sizeof(bool));
-    ifs.read(reinterpret_cast<char *>(&parentID), sizeof(int)); // parentID読込
+    ifs.read(reinterpret_cast<char *>(&parentID), sizeof(int));
+    if (!ifs) { // [Error Handling Added]
+        throw std::runtime_error("Corrupt or incomplete page file: " + filename);
+    }
     Page *page = new Page(id, isLeaf);
     page->parentID = parentID;
     int keyCount;
     ifs.read(reinterpret_cast<char *>(&keyCount), sizeof(int));
+    if (!ifs || keyCount < 0) { // [Error Handling Added]
+        throw std::runtime_error("Corrupt or incomplete page file (keyCount): " + filename);
+    }
     for (int i = 0; i < keyCount; ++i) {
         page->keys.push_back(readBytes(ifs));
     }
     if (isLeaf) {
         int valCount;
         ifs.read(reinterpret_cast<char *>(&valCount), sizeof(int));
+        if (!ifs || valCount < 0) { // [Error Handling Added]
+            throw std::runtime_error("Corrupt or incomplete page file (valCount): " + filename);
+        }
         for (int i = 0; i < valCount; ++i) {
             page->values.push_back(readBytes(ifs));
         }
         ifs.read(reinterpret_cast<char *>(&page->nextLeafID), sizeof(int));
+        if (!ifs) { // [Error Handling Added]
+            throw std::runtime_error("Corrupt or incomplete page file (nextLeafID): " + filename);
+        }
     } else {
         int childCount;
         ifs.read(reinterpret_cast<char *>(&childCount), sizeof(int));
+        if (!ifs || childCount < 0) { // [Error Handling Added]
+            throw std::runtime_error("Corrupt or incomplete page file (childCount): " + filename);
+        }
         for (int i = 0; i < childCount; ++i) {
             int cid;
             ifs.read(reinterpret_cast<char *>(&cid), sizeof(int));
+            if (!ifs) { // [Error Handling Added]
+                throw std::runtime_error("Corrupt or incomplete page file (childrenIDs): " + filename);
+            }
             page->childrenIDs.push_back(cid);
         }
     }
@@ -385,15 +409,13 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
         cursor = getPage(cursorID);
     }
 
-    // すでに同じキーがあるか探す
     for (size_t i = 0; i < cursor->keys.size(); ++i) {
         if (cursor->keys[i] == key) {
-            cursor->values[i] = value; // 上書き
+            cursor->values[i] = value;
             return;
         }
     }
 
-    // なければ挿入
     auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
     int pos = it - cursor->keys.begin();
     cursor->keys.insert(it, key);
@@ -472,8 +494,16 @@ void BPlusTree::remove(const ByteArray &key) {
 
 void BPlusTree::saveTree(const std::string &dir) {
     directory = dir;
-    std::filesystem::create_directory(dir);
-    std::ofstream meta(dir + "/meta.bin", std::ios::binary);
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec); // [Error Handling Added]
+    if (ec) {
+        throw std::runtime_error("Failed to create directory: " + dir);
+    }
+    std::string metaFilename = dir + "/meta.bin";
+    std::ofstream meta(metaFilename, std::ios::binary);
+    if (!meta) { // [Error Handling Added]
+        throw std::runtime_error("Failed to open meta file for writing: " + metaFilename);
+    }
     meta.write(reinterpret_cast<char *>(&rootPageID), sizeof(int));
     meta.write(reinterpret_cast<char *>(&nextPageID), sizeof(int));
     int freeCount = freeList.size();
@@ -481,6 +511,9 @@ void BPlusTree::saveTree(const std::string &dir) {
     for (int id : freeList)
         meta.write(reinterpret_cast<char *>(&id), sizeof(int));
     meta.close();
+    if (!meta) { // [Error Handling Added]
+        throw std::runtime_error("Failed to finish writing meta file: " + metaFilename);
+    }
     for (const auto &[id, page] : pageCache) {
         if (freeList.find(id) == freeList.end()) {
             writePageToDisk(page);
@@ -494,14 +527,25 @@ void BPlusTree::loadTree(const std::string &dir) {
         delete page;
     pageCache.clear();
     freeList.clear();
-    std::ifstream meta(dir + "/meta.bin", std::ios::binary);
+
+    std::string metaFilename = dir + "/meta.bin";
+    std::ifstream meta(metaFilename, std::ios::binary);
+    if (!meta) { // [Error Handling Added]
+        throw std::runtime_error("Failed to open meta file for reading: " + metaFilename);
+    }
     meta.read(reinterpret_cast<char *>(&rootPageID), sizeof(int));
     meta.read(reinterpret_cast<char *>(&nextPageID), sizeof(int));
     int freeCount;
     meta.read(reinterpret_cast<char *>(&freeCount), sizeof(int));
+    if (!meta) { // [Error Handling Added]
+        throw std::runtime_error("Corrupt or incomplete meta file: " + metaFilename);
+    }
     for (int i = 0; i < freeCount; ++i) {
         int id;
         meta.read(reinterpret_cast<char *>(&id), sizeof(int));
+        if (!meta) { // [Error Handling Added]
+            throw std::runtime_error("Corrupt meta file (freeList): " + metaFilename);
+        }
         freeList.insert(id);
     }
     meta.close();
