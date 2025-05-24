@@ -1,20 +1,64 @@
 #include "b_bplus_tree.hpp"
 #include <iostream>
+#include <string>
+
+ByteArray toBytes(const std::string &s) {
+    return ByteArray(s.begin(), s.end());
+}
+
+std::string fromBytes(const ByteArray &b) {
+    return std::string(b.begin(), b.end());
+}
+
 int main() {
     BPlusTree tree;
-    tree.insert("abc", "val1");
-    tree.insert(std::string("\x01\x02", 2), "bin2");
-    tree.traverse();
-    std::cout << "Search abc: " << tree.search("abc") << "\n";
-    std::cout << "Search \\x01\\x02: " << tree.search(std::string("\x01\x02", 2)) << "\n";
-    tree.remove("abc");
-    tree.traverse();
-    tree.visualize();
-    tree.saveTree("tree_data");
 
-    BPlusTree loaded;
-    loaded.loadTree("tree_data");
-    std::cout << "Loaded tree:\n";
-    loaded.traverse();
-    loaded.visualize();
+    // データ挿入
+    tree.insert(toBytes("apple"), toBytes("red"));
+    tree.insert(toBytes("banana"), toBytes("yellow"));
+    tree.insert(toBytes("cherry"), toBytes("dark red"));
+    tree.insert(toBytes("date"), toBytes("brown"));
+    tree.insert(toBytes("fig"), toBytes("purple"));
+    tree.insert(toBytes("grape"), toBytes("green"));
+
+    std::cout << "Inserted records:\n";
+    tree.traverse();
+
+    // ツリー構造表示
+    std::cout << "\nVisualizing B+ Tree:\n";
+    tree.visualize();
+
+    // 検索テスト
+    auto val = tree.search(toBytes("cherry"));
+    std::cout << "\nSearch 'cherry': ";
+    if (!val.empty()) {
+        std::cout << fromBytes(val) << "\n";
+    } else {
+        std::cout << "Not found\n";
+    }
+
+    // 削除テスト
+    tree.remove(toBytes("date"));
+    std::cout << "\nAfter removing 'date':\n";
+    tree.traverse();
+
+    // 範囲検索テスト
+    auto range = tree.rangeSearch(toBytes("banana"), toBytes("grape"));
+    std::cout << "\nRange search from 'banana' to 'grape':\n";
+    for (auto &[k, v] : range) {
+        std::cout << fromBytes(k) << " → " << fromBytes(v) << "\n";
+    }
+
+    // 永続化テスト
+    std::string dir = "tree_data";
+    tree.saveTree(dir);
+    std::cout << "\nTree saved to disk.\n";
+
+    BPlusTree reloaded;
+    reloaded.loadTree(dir);
+    std::cout << "\nReloaded tree from disk:\n";
+    reloaded.traverse();
+    reloaded.visualize();
+
+    return 0;
 }

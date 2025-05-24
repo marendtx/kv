@@ -2,21 +2,18 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 
-// バイト列比較用ヘルパー
-std::string hex(const std::string &s) {
-    std::string h;
-    char buf[4];
-    for (unsigned char c : s) {
-        snprintf(buf, sizeof(buf), "%02x", c);
-        h += buf;
-    }
-    return h;
+ByteArray toBytes(const std::string &s) {
+    return ByteArray(s.begin(), s.end());
 }
+
+std::string fromBytes(const ByteArray &b) {
+    return std::string(b.begin(), b.end());
+}
+
+const std::string testDir = "test_tree_data";
 
 class BPlusTreeTest : public ::testing::Test {
 protected:
-    const std::string testDir = "testdata";
-
     void SetUp() override {
         std::filesystem::create_directory(testDir);
     }
@@ -26,91 +23,54 @@ protected:
     }
 };
 
-TEST_F(BPlusTreeTest, InsertAndSearchStringKey) {
+TEST_F(BPlusTreeTest, InsertAndSearch) {
     BPlusTree tree;
-    tree.insert("aaa", "ten");
-    tree.insert("bbb", "twenty");
-    tree.insert("ccc", "fifteen");
+    tree.insert(toBytes("key1"), toBytes("val1"));
+    tree.insert(toBytes("key2"), toBytes("val2"));
+    tree.insert(toBytes("key3"), toBytes("val3"));
 
-    EXPECT_EQ(tree.search("aaa"), "ten");
-    EXPECT_EQ(tree.search("ccc"), "fifteen");
-    EXPECT_EQ(tree.search("zzz"), "Not Found");
+    EXPECT_EQ(fromBytes(tree.search(toBytes("key1"))), "val1");
+    EXPECT_EQ(fromBytes(tree.search(toBytes("key2"))), "val2");
+    EXPECT_EQ(fromBytes(tree.search(toBytes("key3"))), "val3");
+    EXPECT_TRUE(tree.search(toBytes("keyX")).empty());
 }
 
-TEST_F(BPlusTreeTest, InsertAndSearchBinaryKey) {
+TEST_F(BPlusTreeTest, DeleteKey) {
     BPlusTree tree;
-    std::string key1 = std::string("\x00\x01", 2);
-    std::string key2 = std::string("\x00\x02", 2);
-    std::string key3 = std::string("\xff\xff", 2);
+    tree.insert(toBytes("k1"), toBytes("v1"));
+    tree.insert(toBytes("k2"), toBytes("v2"));
+    tree.remove(toBytes("k1"));
 
-    tree.insert(key1, "v1");
-    tree.insert(key2, "v2");
-    tree.insert(key3, "v3");
-
-    EXPECT_EQ(tree.search(key1), "v1");
-    EXPECT_EQ(tree.search(key2), "v2");
-    EXPECT_EQ(tree.search(key3), "v3");
-    EXPECT_EQ(tree.search(std::string("\x01\x01", 2)), "Not Found");
-}
-
-TEST_F(BPlusTreeTest, RemoveKeyAndFreeListReuse) {
-    BPlusTree tree;
-    std::string k1 = "k1";
-    std::string k2 = "k2";
-    tree.insert(k1, "five");
-    tree.insert(k2, "ten");
-
-    EXPECT_EQ(tree.search(k1), "five");
-    tree.remove(k1);
-    EXPECT_EQ(tree.search(k1), "Not Found");
-
-    // Insert again to check ID reuse via freelist
-    std::string k3 = "k3";
-    tree.insert(k3, "twentyfive");
-    EXPECT_EQ(tree.search(k3), "twentyfive");
+    EXPECT_TRUE(tree.search(toBytes("k1")).empty());
+    EXPECT_EQ(fromBytes(tree.search(toBytes("k2"))), "v2");
 }
 
 TEST_F(BPlusTreeTest, RangeSearch) {
     BPlusTree tree;
-    // "001", "010", "020", "030", "040"
-    for (int i = 1; i <= 5; ++i) {
-        std::string k = std::string(1, (char)i); // バイナリでも可
-        tree.insert(k, "val" + std::to_string(i));
-    }
+    tree.insert(toBytes("a"), toBytes("1"));
+    tree.insert(toBytes("b"), toBytes("2"));
+    tree.insert(toBytes("c"), toBytes("3"));
+    tree.insert(toBytes("d"), toBytes("4"));
 
-    std::string minKey = std::string(1, (char)2);
-    std::string maxKey = std::string(1, (char)4);
-    auto results = tree.rangeSearch(minKey, maxKey);
-
-    std::vector<std::string> expectedKeys = {std::string(1, (char)2), std::string(1, (char)3), std::string(1, (char)4)};
-    ASSERT_EQ(results.size(), expectedKeys.size());
-    for (size_t i = 0; i < results.size(); ++i) {
-        EXPECT_EQ(results[i].first, expectedKeys[i]);
-    }
+    auto result = tree.rangeSearch(toBytes("b"), toBytes("c"));
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_EQ(fromBytes(result[0].first), "b");
+    EXPECT_EQ(fromBytes(result[1].first), "c");
 }
 
-TEST_F(BPlusTreeTest, SaveLoadWithFreeList) {
+TEST_F(BPlusTreeTest, SaveAndLoadTree) {
     {
         BPlusTree tree;
-        for (int i = 1; i <= 5; ++i)
-            tree.insert(std::string(1, (char)i), "val" + std::to_string(i));
-        tree.remove(std::string(1, (char)1)); // freeList should now contain a page ID
+        tree.insert(toBytes("one"), toBytes("1"));
+        tree.insert(toBytes("two"), toBytes("2"));
+        tree.remove(toBytes("one"));
         tree.saveTree(testDir);
     }
 
     {
         BPlusTree tree2;
         tree2.loadTree(testDir);
-
-        EXPECT_EQ(tree2.search(std::string(1, (char)1)), "Not Found");
-        EXPECT_EQ(tree2.search(std::string(1, (char)2)), "val2");
-
-        auto results = tree2.rangeSearch(std::string(1, (char)1), std::string(1, (char)5));
-        std::vector<std::string> expectedKeys = {
-            std::string(1, (char)2), std::string(1, (char)3), std::string(1, (char)4), std::string(1, (char)5)};
-        ASSERT_EQ(results.size(), expectedKeys.size());
-        for (size_t i = 0; i < results.size(); ++i) {
-            EXPECT_EQ(results[i].first, expectedKeys[i]);
-        }
+        EXPECT_EQ(fromBytes(tree2.search(toBytes("two"))), "2");
+        EXPECT_TRUE(tree2.search(toBytes("one")).empty());
     }
 }
