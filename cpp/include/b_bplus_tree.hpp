@@ -13,18 +13,6 @@
 const int ORDER = 4;
 using ByteArray = std::vector<uint8_t>;
 
-// --- Page 構造体 ---
-struct Page {
-    int pageID;
-    bool isLeaf;
-    std::vector<ByteArray> keys;
-    std::vector<ByteArray> values;
-    std::vector<int> childrenIDs;
-    int nextLeafID = -1;
-    Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
-};
-
-// --- 補助関数 ---
 bool byteKeyLessEqual(const ByteArray &a, const ByteArray &b) {
     return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()) || a == b;
 }
@@ -42,7 +30,16 @@ ByteArray readBytes(std::ifstream &ifs) {
     return data;
 }
 
-// --- B+Tree クラス ---
+struct Page {
+    int pageID;
+    bool isLeaf;
+    std::vector<ByteArray> keys;
+    std::vector<ByteArray> values;
+    std::vector<int> childrenIDs;
+    int nextLeafID = -1;
+    Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
+};
+
 class BPlusTree {
 private:
     int rootPageID;
@@ -87,6 +84,50 @@ int BPlusTree::createPage(bool isLeaf) {
     pageCache[id] = new Page(id, isLeaf);
     return id;
 }
+
+Page *BPlusTree::getPage(int id) {
+    if (pageCache.find(id) == pageCache.end()) {
+        pageCache[id] = readPageFromDisk(id, directory);
+    }
+    return pageCache[id];
+}
+
+void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
+    Page *parent = getPage(parentID);
+    int pos = 0;
+    while (pos < parent->keys.size() && byteKeyLessEqual(parent->keys[pos], key))
+        pos++;
+
+    parent->keys.insert(parent->keys.begin() + pos, key);
+    parent->childrenIDs.insert(parent->childrenIDs.begin() + pos + 1, newChildID);
+
+    if (parent->keys.size() < ORDER)
+        return;
+
+    int mid = (ORDER + 1) / 2;
+    int newInternalID = createPage(false);
+    Page *newInternal = getPage(newInternalID);
+
+    ByteArray upKey = parent->keys[mid];
+    newInternal->keys.assign(parent->keys.begin() + mid + 1, parent->keys.end());
+    newInternal->childrenIDs.assign(parent->childrenIDs.begin() + mid + 1, parent->childrenIDs.end());
+
+    parent->keys.resize(mid);
+    parent->childrenIDs.resize(mid + 1);
+
+    if (parentID == rootPageID) {
+        int newRootID = createPage(false);
+        Page *newRoot = getPage(newRootID);
+        newRoot->keys.push_back(upKey);
+        newRoot->childrenIDs.push_back(parentID);
+        newRoot->childrenIDs.push_back(newInternalID);
+        rootPageID = newRootID;
+    } else {
+        int grandParentID = findParentPageID(rootPageID, parentID);
+        insertInternal(upKey, grandParentID, newInternalID);
+    }
+}
+
 void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (nodeID == rootPageID) {
         if (!node->isLeaf && node->childrenIDs.size() == 1) {
@@ -289,6 +330,69 @@ Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
     return page;
 }
 
+void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
+    int cursorID = rootPageID;
+    Page *cursor = getPage(cursorID);
+
+    while (!cursor->isLeaf) {
+        int i = 0;
+        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
+            i++;
+        cursorID = cursor->childrenIDs[i];
+        cursor = getPage(cursorID);
+    }
+
+    auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    int pos = it - cursor->keys.begin();
+    cursor->keys.insert(it, key);
+    cursor->values.insert(cursor->values.begin() + pos, value);
+
+    if (cursor->keys.size() < ORDER)
+        return;
+
+    int newLeafID = createPage(true);
+    Page *newLeaf = getPage(newLeafID);
+    int mid = (ORDER + 1) / 2;
+
+    newLeaf->keys.assign(cursor->keys.begin() + mid, cursor->keys.end());
+    newLeaf->values.assign(cursor->values.begin() + mid, cursor->values.end());
+    cursor->keys.resize(mid);
+    cursor->values.resize(mid);
+
+    newLeaf->nextLeafID = cursor->nextLeafID;
+    cursor->nextLeafID = newLeafID;
+
+    ByteArray newKey = newLeaf->keys[0];
+
+    if (cursorID == rootPageID) {
+        int newRootID = createPage(false);
+        Page *newRoot = getPage(newRootID);
+        newRoot->keys.push_back(newKey);
+        newRoot->childrenIDs.push_back(cursorID);
+        newRoot->childrenIDs.push_back(newLeafID);
+        rootPageID = newRootID;
+    } else {
+        int parentID = findParentPageID(rootPageID, cursorID);
+        insertInternal(newKey, parentID, newLeafID);
+    }
+}
+
+ByteArray BPlusTree::search(const ByteArray &key) {
+    Page *cursor = getPage(rootPageID);
+    while (!cursor->isLeaf) {
+        int i = 0;
+        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
+            i++;
+        cursor = getPage(cursor->childrenIDs[i]);
+    }
+
+    for (size_t i = 0; i < cursor->keys.size(); ++i) {
+        if (cursor->keys[i] == key)
+            return cursor->values[i];
+    }
+    return {};
+}
+
 void BPlusTree::remove(const ByteArray &key) {
     Page *cursor = getPage(rootPageID);
     int cursorID = rootPageID;
@@ -390,114 +494,6 @@ void BPlusTree::visualize() {
 
     std::cout << "B+ Tree Structure\n";
     dfs(rootPageID, "", true);
-}
-
-Page *BPlusTree::getPage(int id) {
-    if (pageCache.find(id) == pageCache.end()) {
-        pageCache[id] = readPageFromDisk(id, directory);
-    }
-    return pageCache[id];
-}
-
-// --- insert 実装 ---
-void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
-    int cursorID = rootPageID;
-    Page *cursor = getPage(cursorID);
-
-    while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
-            i++;
-        cursorID = cursor->childrenIDs[i];
-        cursor = getPage(cursorID);
-    }
-
-    auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
-    int pos = it - cursor->keys.begin();
-    cursor->keys.insert(it, key);
-    cursor->values.insert(cursor->values.begin() + pos, value);
-
-    if (cursor->keys.size() < ORDER)
-        return;
-
-    int newLeafID = createPage(true);
-    Page *newLeaf = getPage(newLeafID);
-    int mid = (ORDER + 1) / 2;
-
-    newLeaf->keys.assign(cursor->keys.begin() + mid, cursor->keys.end());
-    newLeaf->values.assign(cursor->values.begin() + mid, cursor->values.end());
-    cursor->keys.resize(mid);
-    cursor->values.resize(mid);
-
-    newLeaf->nextLeafID = cursor->nextLeafID;
-    cursor->nextLeafID = newLeafID;
-
-    ByteArray newKey = newLeaf->keys[0];
-
-    if (cursorID == rootPageID) {
-        int newRootID = createPage(false);
-        Page *newRoot = getPage(newRootID);
-        newRoot->keys.push_back(newKey);
-        newRoot->childrenIDs.push_back(cursorID);
-        newRoot->childrenIDs.push_back(newLeafID);
-        rootPageID = newRootID;
-    } else {
-        int parentID = findParentPageID(rootPageID, cursorID);
-        insertInternal(newKey, parentID, newLeafID);
-    }
-}
-
-void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
-    Page *parent = getPage(parentID);
-    int pos = 0;
-    while (pos < parent->keys.size() && byteKeyLessEqual(parent->keys[pos], key))
-        pos++;
-
-    parent->keys.insert(parent->keys.begin() + pos, key);
-    parent->childrenIDs.insert(parent->childrenIDs.begin() + pos + 1, newChildID);
-
-    if (parent->keys.size() < ORDER)
-        return;
-
-    int mid = (ORDER + 1) / 2;
-    int newInternalID = createPage(false);
-    Page *newInternal = getPage(newInternalID);
-
-    ByteArray upKey = parent->keys[mid];
-    newInternal->keys.assign(parent->keys.begin() + mid + 1, parent->keys.end());
-    newInternal->childrenIDs.assign(parent->childrenIDs.begin() + mid + 1, parent->childrenIDs.end());
-
-    parent->keys.resize(mid);
-    parent->childrenIDs.resize(mid + 1);
-
-    if (parentID == rootPageID) {
-        int newRootID = createPage(false);
-        Page *newRoot = getPage(newRootID);
-        newRoot->keys.push_back(upKey);
-        newRoot->childrenIDs.push_back(parentID);
-        newRoot->childrenIDs.push_back(newInternalID);
-        rootPageID = newRootID;
-    } else {
-        int grandParentID = findParentPageID(rootPageID, parentID);
-        insertInternal(upKey, grandParentID, newInternalID);
-    }
-}
-
-// --- search 実装 ---
-ByteArray BPlusTree::search(const ByteArray &key) {
-    Page *cursor = getPage(rootPageID);
-    while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
-            i++;
-        cursor = getPage(cursor->childrenIDs[i]);
-    }
-
-    for (size_t i = 0; i < cursor->keys.size(); ++i) {
-        if (cursor->keys[i] == key)
-            return cursor->values[i];
-    }
-    return {};
 }
 
 std::vector<std::pair<ByteArray, ByteArray>> BPlusTree::rangeSearch(const ByteArray &min, const ByteArray &max) {
