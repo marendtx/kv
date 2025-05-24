@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-const int ORDER = 4;
+const int ORDER = 32;
 using ByteArray = std::vector<uint8_t>;
 
 bool byteKeyLessEqual(const ByteArray &a, const ByteArray &b) {
