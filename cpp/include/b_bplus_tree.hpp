@@ -345,21 +345,51 @@ void BPlusTree::loadTree(const std::string &dir) {
 }
 
 void BPlusTree::visualize() {
-    std::function<void(int, int)> dfs = [&](int pageID, int depth) {
-        Page *p = getPage(pageID);
-        std::string indent(depth * 2, ' ');
-        std::cout << indent << (p->isLeaf ? "Leaf" : "Internal") << " Page " << pageID << " Keys: ";
-        for (const auto &k : p->keys) {
-            std::string ks(k.begin(), k.end());
-            std::cout << ks << " ";
-        }
-        std::cout << "\n";
-        if (!p->isLeaf) {
-            for (int cid : p->childrenIDs)
-                dfs(cid, depth + 1);
-        }
-    };
-    dfs(rootPageID, 0);
+
+    std::function<void(int, std::string, bool)> dfs =
+        [&](int pageID, std::string prefix, bool isLast) {
+            Page *p = getPage(pageID);
+
+            std::cout << prefix;
+            std::cout << (isLast ? "└── " : "├── ");
+
+            std::string nodeType = p->isLeaf ? "Leaf" : "Internal";
+            std::cout << "[" << nodeType << " " << pageID << "] Keys: ";
+            for (size_t i = 0; i < p->keys.size(); ++i) {
+                std::string ks(p->keys[i].begin(), p->keys[i].end());
+                std::cout << "\"" << ks << "\"";
+                if (i + 1 < p->keys.size())
+                    std::cout << ", ";
+            }
+
+            if (p->isLeaf) {
+                if (p->nextLeafID != -1)
+                    std::cout << " → Leaf " << p->nextLeafID;
+            }
+
+            std::cout << "\n";
+
+            if (p->isLeaf) {
+                std::cout << prefix << (isLast ? "    " : "│   ");
+                std::cout << "    Values: ";
+                for (size_t i = 0; i < p->values.size(); ++i) {
+                    std::string vs(p->values[i].begin(), p->values[i].end());
+                    std::cout << "\"" << vs << "\"";
+                    if (i + 1 < p->values.size())
+                        std::cout << ", ";
+                }
+                std::cout << "\n";
+                return;
+            }
+
+            for (size_t i = 0; i < p->childrenIDs.size(); ++i) {
+                bool last = (i == p->childrenIDs.size() - 1);
+                dfs(p->childrenIDs[i], prefix + (isLast ? "    " : "│   "), last);
+            }
+        };
+
+    std::cout << "B+ Tree Structure\n";
+    dfs(rootPageID, "", true);
 }
 
 Page *BPlusTree::getPage(int id) {
