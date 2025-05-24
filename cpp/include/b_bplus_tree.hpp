@@ -37,6 +37,8 @@ struct Page {
     std::vector<ByteArray> values;
     std::vector<int> childrenIDs;
     int nextLeafID = -1;
+    int parentID = -1; // 親IDを追加
+
     Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
 };
 
@@ -48,16 +50,18 @@ private:
     std::set<int> freeList;
     std::string directory;
 
-    int createPage(bool isLeaf);
+    int createPage(bool isLeaf, int parentID = -1);
     Page *getPage(int id);
     void insertInternal(const ByteArray &key, int parentID, int newChildID);
     void rebalanceAfterDeletion(Page *cursor, int cursorID);
     int findParentPageID(int currentID, int childID);
     void writePageToDisk(Page *page);
     Page *readPageFromDisk(int pageID, const std::string &dir);
+    void setChildrenParentIDs(Page *parent);
 
 public:
     BPlusTree();
+    ~BPlusTree();
     void insert(const ByteArray &key, const ByteArray &value);
     ByteArray search(const ByteArray &key);
     void remove(const ByteArray &key);
@@ -68,12 +72,29 @@ public:
     void traverse();
 };
 
-// --- コンストラクタ ---
-BPlusTree::BPlusTree() {
-    rootPageID = createPage(true);
+// --- destructor (メモリ解放) ---
+BPlusTree::~BPlusTree() {
+    for (auto &[id, page] : pageCache) {
+        delete page;
+    }
+    pageCache.clear();
 }
 
-int BPlusTree::createPage(bool isLeaf) {
+// --- 子ノード全ての親IDをセット ---
+void BPlusTree::setChildrenParentIDs(Page *parent) {
+    for (int cid : parent->childrenIDs) {
+        Page *child = getPage(cid);
+        if (child)
+            child->parentID = parent->pageID;
+    }
+}
+
+// --- コンストラクタ ---
+BPlusTree::BPlusTree() {
+    rootPageID = createPage(true, -1);
+}
+
+int BPlusTree::createPage(bool isLeaf, int parentID) {
     int id;
     if (!freeList.empty()) {
         id = *freeList.begin();
@@ -82,6 +103,7 @@ int BPlusTree::createPage(bool isLeaf) {
         id = nextPageID++;
     }
     pageCache[id] = new Page(id, isLeaf);
+    pageCache[id]->parentID = parentID;
     return id;
 }
 
@@ -92,6 +114,15 @@ Page *BPlusTree::getPage(int id) {
     return pageCache[id];
 }
 
+// 親IDを高速参照
+int BPlusTree::findParentPageID(int currentID, int childID) {
+    Page *child = getPage(childID);
+    if (!child)
+        return -1;
+    return child->parentID;
+}
+
+// 内部ノードへの挿入
 void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
     Page *parent = getPage(parentID);
     int pos = 0;
@@ -101,11 +132,16 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     parent->keys.insert(parent->keys.begin() + pos, key);
     parent->childrenIDs.insert(parent->childrenIDs.begin() + pos + 1, newChildID);
 
+    // 新しい子にも親IDをセット
+    Page *newChild = getPage(newChildID);
+    newChild->parentID = parent->pageID;
+
     if (parent->keys.size() < ORDER)
         return;
 
+    // 分割処理
     int mid = (ORDER + 1) / 2;
-    int newInternalID = createPage(false);
+    int newInternalID = createPage(false, parent->parentID);
     Page *newInternal = getPage(newInternalID);
 
     ByteArray upKey = parent->keys[mid];
@@ -115,12 +151,21 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     parent->keys.resize(mid);
     parent->childrenIDs.resize(mid + 1);
 
+    // 新ノードの子の親IDもセット
+    setChildrenParentIDs(newInternal);
+    setChildrenParentIDs(parent);
+
     if (parentID == rootPageID) {
-        int newRootID = createPage(false);
+        int newRootID = createPage(false, -1);
         Page *newRoot = getPage(newRootID);
         newRoot->keys.push_back(upKey);
         newRoot->childrenIDs.push_back(parentID);
         newRoot->childrenIDs.push_back(newInternalID);
+
+        parent->parentID = newRootID;
+        newInternal->parentID = newRootID;
+        setChildrenParentIDs(newRoot);
+
         rootPageID = newRootID;
     } else {
         int grandParentID = findParentPageID(rootPageID, parentID);
@@ -128,10 +173,13 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     }
 }
 
+// 削除後のバランス修正
 void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (nodeID == rootPageID) {
         if (!node->isLeaf && node->childrenIDs.size() == 1) {
             rootPageID = node->childrenIDs[0];
+            Page *newRoot = getPage(rootPageID);
+            newRoot->parentID = -1;
             freeList.insert(nodeID);
             pageCache.erase(nodeID);
             delete node;
@@ -143,7 +191,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (node->keys.size() >= minKeys)
         return;
 
-    int parentID = findParentPageID(rootPageID, nodeID);
+    int parentID = node->parentID;
     Page *parent = getPage(parentID);
 
     int idx = 0;
@@ -155,20 +203,21 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
 
     if (leftID != -1) {
         Page *left = getPage(leftID);
-
         if (left->keys.size() > minKeys) {
-            // ✅ 左から借用
+            // 左から借用
             if (node->isLeaf) {
                 node->keys.insert(node->keys.begin(), left->keys.back());
                 node->values.insert(node->values.begin(), left->values.back());
                 left->keys.pop_back();
                 left->values.pop_back();
 
-                // 親キー更新（左の最後のキー → 現ノードの最初のキー）
                 parent->keys[idx - 1] = node->keys[0];
             } else {
                 node->keys.insert(node->keys.begin(), parent->keys[idx - 1]);
                 node->childrenIDs.insert(node->childrenIDs.begin(), left->childrenIDs.back());
+
+                Page *movedChild = getPage(left->childrenIDs.back());
+                movedChild->parentID = nodeID;
 
                 parent->keys[idx - 1] = left->keys.back();
 
@@ -181,9 +230,8 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
 
     if (rightID != -1) {
         Page *right = getPage(rightID);
-
         if (right->keys.size() > minKeys) {
-            // ✅ 右から借用
+            // 右から借用
             if (node->isLeaf) {
                 node->keys.push_back(right->keys.front());
                 node->values.push_back(right->values.front());
@@ -195,6 +243,9 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
                 node->keys.push_back(parent->keys[idx]);
                 node->childrenIDs.push_back(right->childrenIDs.front());
 
+                Page *movedChild = getPage(right->childrenIDs.front());
+                movedChild->parentID = nodeID;
+
                 parent->keys[idx] = right->keys.front();
 
                 right->keys.erase(right->keys.begin());
@@ -204,7 +255,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
         }
     }
 
-    // ✅ 借用不可 → マージ処理へ
+    // マージ
     if (leftID != -1) {
         Page *left = getPage(leftID);
         if (node->isLeaf) {
@@ -215,6 +266,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
             left->keys.push_back(parent->keys[idx - 1]);
             left->keys.insert(left->keys.end(), node->keys.begin(), node->keys.end());
             left->childrenIDs.insert(left->childrenIDs.end(), node->childrenIDs.begin(), node->childrenIDs.end());
+            setChildrenParentIDs(left);
         }
 
         parent->keys.erase(parent->keys.begin() + idx - 1);
@@ -239,6 +291,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
             node->keys.push_back(parent->keys[idx]);
             node->keys.insert(node->keys.end(), right->keys.begin(), right->keys.end());
             node->childrenIDs.insert(node->childrenIDs.end(), right->childrenIDs.begin(), right->childrenIDs.end());
+            setChildrenParentIDs(node);
         }
 
         parent->keys.erase(parent->keys.begin() + idx);
@@ -253,25 +306,12 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     }
 }
 
-int BPlusTree::findParentPageID(int currentID, int childID) {
-    Page *current = getPage(currentID);
-    if (current->isLeaf)
-        return -1;
-    for (int cid : current->childrenIDs) {
-        if (cid == childID)
-            return currentID;
-        int res = findParentPageID(cid, childID);
-        if (res != -1)
-            return res;
-    }
-    return -1;
-}
-
 void BPlusTree::writePageToDisk(Page *page) {
     std::string filename = directory + "/page_" + std::to_string(page->pageID) + ".bin";
     std::ofstream ofs(filename, std::ios::binary);
     ofs.write(reinterpret_cast<char *>(&page->pageID), sizeof(int));
     ofs.write(reinterpret_cast<char *>(&page->isLeaf), sizeof(bool));
+    ofs.write(reinterpret_cast<char *>(&page->parentID), sizeof(int)); // parentID保存
     int keyCount = page->keys.size();
     ofs.write(reinterpret_cast<char *>(&keyCount), sizeof(int));
     for (const auto &k : page->keys) {
@@ -303,9 +343,12 @@ Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
     std::ifstream ifs(filename, std::ios::binary);
     int id;
     bool isLeaf;
+    int parentID;
     ifs.read(reinterpret_cast<char *>(&id), sizeof(int));
     ifs.read(reinterpret_cast<char *>(&isLeaf), sizeof(bool));
+    ifs.read(reinterpret_cast<char *>(&parentID), sizeof(int)); // parentID読込
     Page *page = new Page(id, isLeaf);
+    page->parentID = parentID;
     int keyCount;
     ifs.read(reinterpret_cast<char *>(&keyCount), sizeof(int));
     for (int i = 0; i < keyCount; ++i) {
@@ -350,7 +393,7 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     if (cursor->keys.size() < ORDER)
         return;
 
-    int newLeafID = createPage(true);
+    int newLeafID = createPage(true, cursor->parentID);
     Page *newLeaf = getPage(newLeafID);
     int mid = (ORDER + 1) / 2;
 
@@ -362,17 +405,23 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     newLeaf->nextLeafID = cursor->nextLeafID;
     cursor->nextLeafID = newLeafID;
 
+    // 新Leafノードの親IDもセット済み
     ByteArray newKey = newLeaf->keys[0];
 
     if (cursorID == rootPageID) {
-        int newRootID = createPage(false);
+        int newRootID = createPage(false, -1);
         Page *newRoot = getPage(newRootID);
         newRoot->keys.push_back(newKey);
         newRoot->childrenIDs.push_back(cursorID);
         newRoot->childrenIDs.push_back(newLeafID);
+
+        cursor->parentID = newRootID;
+        newLeaf->parentID = newRootID;
+        setChildrenParentIDs(newRoot);
+
         rootPageID = newRootID;
     } else {
-        int parentID = findParentPageID(rootPageID, cursorID);
+        int parentID = cursor->parentID;
         insertInternal(newKey, parentID, newLeafID);
     }
 }
@@ -433,6 +482,8 @@ void BPlusTree::saveTree(const std::string &dir) {
 
 void BPlusTree::loadTree(const std::string &dir) {
     directory = dir;
+    for (auto &[id, page] : pageCache)
+        delete page;
     pageCache.clear();
     freeList.clear();
     std::ifstream meta(dir + "/meta.bin", std::ios::binary);
