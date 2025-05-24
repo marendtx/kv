@@ -197,8 +197,8 @@ TEST_F(BPlusTreeTest, SaveLoadRepeat) {
 
 TEST_F(BPlusTreeTest, LargeScaleInsertSearchDelete) {
     BPlusTree tree;
+    tree.saveTree(testDir); // ディレクトリセット
     const int N = 10000;
-    // const int N = 1000000;
     std::vector<std::string> keys, vals;
     for (int i = 0; i < N; ++i) {
         keys.push_back("key" + std::to_string(i));
