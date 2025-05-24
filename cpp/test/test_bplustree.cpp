@@ -106,11 +106,9 @@ TEST_F(BPlusTreeTest, DeleteCausesMerge) {
 TEST_F(BPlusTreeTest, DuplicateKeyInsertOverwrites) {
     BPlusTree tree;
     tree.insert(toBytes("dup"), toBytes("one"));
-    tree.insert(toBytes("dup"), toBytes("two")); // overwrite behavior expected?
+    tree.insert(toBytes("dup"), toBytes("two")); // 2回目は上書き
 
-    // 現在の実装では重複キーは追加される → search は最初の一致を返す
-    // overwrite にするなら search → remove → insert に変える必要あり
-    EXPECT_EQ(fromBytes(tree.search(toBytes("dup"))), "one"); // 今の仕様ではこうなる
+    EXPECT_EQ(fromBytes(tree.search(toBytes("dup"))), "two"); // 上書きした値が返る
 }
 
 TEST_F(BPlusTreeTest, EdgeCaseEmptyKey) {

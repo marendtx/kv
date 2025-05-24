@@ -385,6 +385,15 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
         cursor = getPage(cursorID);
     }
 
+    // すでに同じキーがあるか探す
+    for (size_t i = 0; i < cursor->keys.size(); ++i) {
+        if (cursor->keys[i] == key) {
+            cursor->values[i] = value; // 上書き
+            return;
+        }
+    }
+
+    // なければ挿入
     auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
     int pos = it - cursor->keys.begin();
     cursor->keys.insert(it, key);
@@ -405,7 +414,6 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     newLeaf->nextLeafID = cursor->nextLeafID;
     cursor->nextLeafID = newLeafID;
 
-    // 新Leafノードの親IDもセット済み
     ByteArray newKey = newLeaf->keys[0];
 
     if (cursorID == rootPageID) {
