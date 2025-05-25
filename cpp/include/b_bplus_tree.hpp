@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <cstddef> // ← std::byte のため追加
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -109,7 +109,6 @@ private:
 
     std::string walFilename = "tree_wal.log";
     std::ofstream walWriter;
-    bool walRecoveryMode = false;
 
     int createPage(bool isLeaf, int parentID = -1);
     Page *getPage(int id);
@@ -208,11 +207,6 @@ Page *BPlusTree::getPage(int id) {
     if (it != pageCache.end()) {
         touchLRU(id);
         return it->second->second.get();
-    }
-
-    // WALによるリカバリモードであれば、ディスクアクセスはしない。
-    if (walRecoveryMode) {
-        return nullptr;
     }
 
     // ディスクから読み込み
@@ -745,8 +739,12 @@ void BPlusTree::recoverFromWAL(const std::string &dir) {
     lruList.clear();
     pageCache.clear();
     freeList.clear();
-    walRecoveryMode = true;
     rootPageID = -1;
+    directory = dir;
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+    if (ec)
+        throw std::runtime_error("Failed to create directory: " + dir);
 
     std::ifstream walRead(walFilename, std::ios::binary);
     if (!walRead)
@@ -772,8 +770,9 @@ void BPlusTree::recoverFromWAL(const std::string &dir) {
         }
     }
 
-    walRecoveryMode = false;
-    directory = dir;
+    if (rootPageID == -1) {
+        rootPageID = createPage(true, -1);
+    }
 }
 
 void BPlusTree::saveTree(const std::string &dir) {

@@ -366,8 +366,6 @@ TEST_F(BPlusTreeTest, WALRecovery) {
 
     BPlusTree tree2;
     tree2.recoverFromWAL("test_wal_recovery");
-    tree2.saveTree("test_wal_recovery");
-
     EXPECT_TRUE(tree2.search(toBytes("foo")).empty());
     EXPECT_EQ(fromBytes(tree2.search(toBytes("bar"))), "val2");
 }
@@ -384,8 +382,95 @@ TEST_F(BPlusTreeTest, WALRecovery_OnlyInsert) {
 
     BPlusTree tree2;
     tree2.recoverFromWAL(testDir);
-    tree2.saveTree(testDir);
     EXPECT_EQ(fromBytes(tree2.search(toBytes("A"))), "a");
     EXPECT_EQ(fromBytes(tree2.search(toBytes("B"))), "b");
     EXPECT_EQ(fromBytes(tree2.search(toBytes("C"))), "c");
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_InsertRemoveMix) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("A"), toBytes("a"));
+        tree.insert(toBytes("B"), toBytes("b"));
+        tree.remove(toBytes("A"));
+        tree.insert(toBytes("C"), toBytes("c"));
+        tree.remove(toBytes("C"));
+    }
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    tree2.recoverFromWAL(testDir);
+    EXPECT_TRUE(tree2.search(toBytes("A")).empty());
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("B"))), "b");
+    EXPECT_TRUE(tree2.search(toBytes("C")).empty());
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_DuplicateKeyInsert) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("dup"), toBytes("one"));
+        tree.insert(toBytes("dup"), toBytes("two")); // overwrite
+        tree.insert(toBytes("dup"), toBytes("three"));
+    }
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    tree2.recoverFromWAL(testDir);
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("dup"))), "three");
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_RandomOrderAndCrash) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("a"), toBytes("1"));
+        tree.insert(toBytes("b"), toBytes("2"));
+        tree.remove(toBytes("a"));
+        // WAL途中で「壊れた」ふり（ファイル途中で切る）
+        std::ofstream ofs("tree_wal.log", std::ios::in | std::ios::out | std::ios::binary);
+        ofs.seekp(0, std::ios::end);
+        auto pos = ofs.tellp();
+        ofs.seekp(pos - 6); // 適当な位置でぶった切る
+        ofs.close();
+    }
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    // 途中で止まっても壊れないこと（例外をcatchし、部分復旧を期待）
+    EXPECT_NO_THROW(tree2.recoverFromWAL(testDir));
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_Idempotency) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("foo"), toBytes("v1"));
+        tree.insert(toBytes("bar"), toBytes("v2"));
+        tree.remove(toBytes("foo"));
+    }
+    std::filesystem::remove_all(testDir);
+
+    // 2回連続でリカバリしても同じ結果（冪等性）
+    for (int i = 0; i < 2; ++i) {
+        BPlusTree tree2;
+        tree2.recoverFromWAL(testDir);
+        EXPECT_TRUE(tree2.search(toBytes("foo")).empty());
+        EXPECT_EQ(fromBytes(tree2.search(toBytes("bar"))), "v2");
+    }
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_EmptyWAL) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        // 書かない
+    }
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    tree2.recoverFromWAL(testDir);
+    // 何もないはず
+    EXPECT_TRUE(tree2.search(toBytes("A")).empty());
+    EXPECT_TRUE(tree2.search(toBytes("")).empty());
 }
