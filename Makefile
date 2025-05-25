@@ -3,13 +3,13 @@ test-local: cpp-test-local go-test-local
 test-container: cpp-test-container go-test-container
 
 cpp-test-local:
-	cd cpp && cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build
+	cd cpp && cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build && rm -f tree_data/*.bin
 
 cpp-test-container:
 	cd cpp && docker build --target test -t cpp-test -f Dockerfile . && docker run cpp-test
 
 cpp-run-local:
-	cd cpp && cmake -S . -B build && cmake --build build && ./build/myapp && rm -rf build
+	cd cpp && cmake -S . -B build && cmake --build build && ./build/myapp && rm -rf build && rm -f tree_data/*.bin
 
 cpp-run-container:
 	cd cpp && docker build --target app -t cpp-app -f Dockerfile . && docker run cpp-app
