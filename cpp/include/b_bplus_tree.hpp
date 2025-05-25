@@ -642,16 +642,12 @@ void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
 
     int cursorID = rootPageID;
     Page *cursor = getPage(cursorID);
-    if (!cursor)
-        return;
 
     while (!cursor->isLeaf) {
         auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
         int i = it - cursor->keys.begin();
         cursorID = cursor->childrenIDs[i];
         cursor = getPage(cursorID);
-        if (!cursor)
-            return;
     }
 
     auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
@@ -672,8 +668,6 @@ void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
 
     int newLeafID = createPage(true, cursor->parentID);
     Page *newLeaf = getPage(newLeafID);
-    if (!newLeaf)
-        return;
     int mid = (ORDER + 1) / 2;
 
     newLeaf->keys.assign(cursor->keys.begin() + mid, cursor->keys.end());
@@ -711,17 +705,14 @@ void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
 void BPlusTree::removeFromWAL(const ByteArray &key) {
     if (rootPageID == -1)
         return;
+
     Page *cursor = getPage(rootPageID);
-    if (!cursor)
-        return;
     int cursorID = rootPageID;
     while (!cursor->isLeaf) {
         auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
         int i = it - cursor->keys.begin();
         cursorID = cursor->childrenIDs[i];
         cursor = getPage(cursorID);
-        if (!cursor)
-            return;
     }
 
     auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
