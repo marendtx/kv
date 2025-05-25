@@ -669,21 +669,23 @@ std::vector<std::pair<ByteArray, ByteArray>> BPlusTree::rangeSearch(const ByteAr
     std::vector<std::pair<ByteArray, ByteArray>> result;
     Page *cursor = getPage(rootPageID);
     while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], min))
-            i++;
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), min, byteKeyLess);
+        int i = it - cursor->keys.begin();
         cursor = getPage(cursor->childrenIDs[i]);
     }
+    // minの位置から始める
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), min, byteKeyLess);
+    size_t idx = it - cursor->keys.begin();
     while (cursor) {
-        for (size_t i = 0; i < cursor->keys.size(); ++i) {
+        for (size_t i = idx; i < cursor->keys.size(); ++i) {
             if (byteKeyLess(max, cursor->keys[i]))
                 return result;
-            if (byteKeyLessEqual(min, cursor->keys[i]))
-                result.emplace_back(cursor->keys[i], cursor->values[i]);
+            result.emplace_back(cursor->keys[i], cursor->values[i]);
         }
         if (cursor->nextLeafID == -1)
             break;
         cursor = getPage(cursor->nextLeafID);
+        idx = 0;
     }
     return result;
 }
