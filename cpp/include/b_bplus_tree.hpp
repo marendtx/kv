@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstddef> // ← std::byte のため追加
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -16,7 +17,7 @@
 const int ORDER = 32;
 constexpr size_t MAX_CACHE_SIZE = 1024; // ページキャッシュ上限
 
-using ByteArray = std::vector<uint8_t>;
+using ByteArray = std::vector<std::byte>;
 
 bool byteKeyLessEqual(const ByteArray &a, const ByteArray &b) {
     return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()) || a == b;
@@ -24,6 +25,7 @@ bool byteKeyLessEqual(const ByteArray &a, const ByteArray &b) {
 bool byteKeyLess(const ByteArray &a, const ByteArray &b) {
     return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
 }
+
 ByteArray readBytes(std::ifstream &ifs) {
     int len;
     ifs.read(reinterpret_cast<char *>(&len), sizeof(int));
@@ -73,7 +75,7 @@ private:
     void rebalanceAfterDeletion(Page *cursor, int cursorID);
     int findParentPageID(int currentID, int childID);
     void writePageToDisk(Page *page);
-    Page *readPageFromDisk(int pageID, const std::string &dir);
+    static Page *readPageFromDisk(int pageID, const std::string &dir);
     void setChildrenParentIDs(Page *parent);
     void evictIfNeeded();
     void flushPage(Page *page);
@@ -507,7 +509,6 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     if (cursor->keys.size() < ORDER)
         return;
 
-    // 以降、既存の分割処理
     int newLeafID = createPage(true, cursor->parentID);
     Page *newLeaf = getPage(newLeafID);
     int mid = (ORDER + 1) / 2;
@@ -635,7 +636,7 @@ void BPlusTree::visualize() {
             std::string nodeType = p->isLeaf ? "Leaf" : "Internal";
             std::cout << "[" << nodeType << " " << pageID << "] Keys: ";
             for (size_t i = 0; i < p->keys.size(); ++i) {
-                std::string ks(p->keys[i].begin(), p->keys[i].end());
+                std::string ks(reinterpret_cast<const char *>(p->keys[i].data()), p->keys[i].size());
                 std::cout << "\"" << ks << "\"";
                 if (i + 1 < p->keys.size())
                     std::cout << ", ";
@@ -649,7 +650,7 @@ void BPlusTree::visualize() {
                 std::cout << prefix << (isLast ? "    " : "│   ");
                 std::cout << "    Values: ";
                 for (size_t i = 0; i < p->values.size(); ++i) {
-                    std::string vs(p->values[i].begin(), p->values[i].end());
+                    std::string vs(reinterpret_cast<const char *>(p->values[i].data()), p->values[i].size());
                     std::cout << "\"" << vs << "\"";
                     if (i + 1 < p->values.size())
                         std::cout << ", ";
@@ -696,8 +697,8 @@ void BPlusTree::traverse() {
     }
     while (cursor) {
         for (size_t i = 0; i < cursor->keys.size(); ++i) {
-            std::string k(cursor->keys[i].begin(), cursor->keys[i].end());
-            std::string v(cursor->values[i].begin(), cursor->values[i].end());
+            std::string k(reinterpret_cast<const char *>(cursor->keys[i].data()), cursor->keys[i].size());
+            std::string v(reinterpret_cast<const char *>(cursor->values[i].data()), cursor->values[i].size());
             std::cout << k << " → " << v << "  ";
         }
         if (cursor->nextLeafID == -1)

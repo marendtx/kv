@@ -1,14 +1,15 @@
 #include "b_bplus_tree.hpp"
+#include <cstddef>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <random>
 
 ByteArray toBytes(const std::string &s) {
-    return ByteArray(s.begin(), s.end());
+    return ByteArray(reinterpret_cast<const std::byte *>(s.data()), reinterpret_cast<const std::byte *>(s.data() + s.size()));
 }
 
 std::string fromBytes(const ByteArray &b) {
-    return std::string(b.begin(), b.end());
+    return std::string(reinterpret_cast<const char *>(b.data()), b.size());
 }
 
 const std::string testDir = "test_tree_data";
@@ -90,10 +91,9 @@ TEST_F(BPlusTreeTest, InsertManyAndSearchAll) {
 
 TEST_F(BPlusTreeTest, DeleteCausesMerge) {
     BPlusTree tree;
-    for (int i = 0; i < 20; ++i) // データ数増やす
+    for (int i = 0; i < 20; ++i)
         tree.insert(toBytes("k" + std::to_string(i)), toBytes("v" + std::to_string(i)));
 
-    // リーフ分割 → 削除によって再マージを誘発
     for (int i = 5; i <= 14; ++i)
         tree.remove(toBytes("k" + std::to_string(i)));
 
@@ -107,9 +107,9 @@ TEST_F(BPlusTreeTest, DeleteCausesMerge) {
 TEST_F(BPlusTreeTest, DuplicateKeyInsertOverwrites) {
     BPlusTree tree;
     tree.insert(toBytes("dup"), toBytes("one"));
-    tree.insert(toBytes("dup"), toBytes("two")); // 2回目は上書き
+    tree.insert(toBytes("dup"), toBytes("two")); // 上書き
 
-    EXPECT_EQ(fromBytes(tree.search(toBytes("dup"))), "two"); // 上書きした値が返る
+    EXPECT_EQ(fromBytes(tree.search(toBytes("dup"))), "two");
 }
 
 TEST_F(BPlusTreeTest, EdgeCaseEmptyKey) {
@@ -138,31 +138,26 @@ TEST_F(BPlusTreeTest, PersistenceWithManyKeys) {
     }
 }
 
-// --- 破損ファイルで例外を投げるか ---
 TEST_F(BPlusTreeTest, CorruptFileThrows) {
-    // わざとmeta.binを書き潰す
     std::ofstream(testDir + "/meta.bin") << "broken!";
     BPlusTree tree;
     EXPECT_THROW(tree.loadTree(testDir), std::runtime_error);
 }
 
-// --- 空Treeでのsearch/remove ---
 TEST_F(BPlusTreeTest, EmptyTreeOperations) {
     BPlusTree tree;
     EXPECT_TRUE(tree.search(toBytes("any")).empty());
-    tree.remove(toBytes("any")); // no throw
+    tree.remove(toBytes("any"));
 }
 
-// --- キー・値にバイナリ（0x00, 0xff, 長大文字列）---
 TEST_F(BPlusTreeTest, BinaryKeyAndValue) {
-    ByteArray key = {0x00, 0xff, 0x41, 0x42};
-    ByteArray val = {0x30, 0x31, 0x32, 0x00};
+    ByteArray key = {std::byte(0x00), std::byte(0xff), std::byte(0x41), std::byte(0x42)};
+    ByteArray val = {std::byte(0x30), std::byte(0x31), std::byte(0x32), std::byte(0x00)};
     BPlusTree tree;
     tree.insert(key, val);
     EXPECT_EQ(tree.search(key), val);
 }
 
-// --- ORDER-1, ORDER, ORDER+1件で分割/マージ境界を攻める ---
 TEST_F(BPlusTreeTest, OrderBoundarySplitMerge) {
     BPlusTree tree;
     int N = ORDER + 2;
@@ -174,14 +169,12 @@ TEST_F(BPlusTreeTest, OrderBoundarySplitMerge) {
         std::string s = "k" + std::to_string(i);
         EXPECT_EQ(fromBytes(tree.search(toBytes(s))), "v" + std::to_string(i));
     }
-    // 一気に削除してマージ/高さ減少をテスト
     for (int i = 0; i < N; ++i)
         tree.remove(toBytes("k" + std::to_string(i)));
     for (int i = 0; i < N; ++i)
         EXPECT_TRUE(tree.search(toBytes("k" + std::to_string(i))).empty());
 }
 
-// --- save/loadを何回も繰り返しても壊れない ---
 TEST_F(BPlusTreeTest, SaveLoadRepeat) {
     BPlusTree tree;
     for (int i = 0; i < 100; ++i)
@@ -197,26 +190,22 @@ TEST_F(BPlusTreeTest, SaveLoadRepeat) {
 
 TEST_F(BPlusTreeTest, LargeScaleInsertSearchDelete) {
     BPlusTree tree;
-    tree.saveTree(testDir); // ディレクトリセット
+    tree.saveTree(testDir);
     const int N = 10000;
     std::vector<std::string> keys, vals;
     for (int i = 0; i < N; ++i) {
         keys.push_back("key" + std::to_string(i));
         vals.push_back("val" + std::to_string(i));
     }
-    // シャッフル挿入
     std::mt19937 rng(std::random_device{}());
     std::shuffle(keys.begin(), keys.end(), rng);
     for (int i = 0; i < N; ++i)
         tree.insert(toBytes(keys[i]), toBytes(vals[i]));
-    // 検索
     for (int i = 0; i < N; ++i)
         EXPECT_EQ(fromBytes(tree.search(toBytes(keys[i]))), vals[i]);
-    // ランダム削除
     std::shuffle(keys.begin(), keys.end(), rng);
     for (int i = 0; i < N; ++i)
         tree.remove(toBytes(keys[i]));
-    // 全部消えたことを確認
     for (int i = 0; i < N; ++i)
         EXPECT_TRUE(tree.search(toBytes(keys[i])).empty());
 }
@@ -229,9 +218,9 @@ TEST_F(BPlusTreeTest, RandomBinaryKeyValue) {
     for (int i = 0; i < 1000; ++i) {
         ByteArray key(10), val(20);
         for (auto &b : key)
-            b = dist(rng);
+            b = std::byte(dist(rng));
         for (auto &b : val)
-            b = dist(rng);
+            b = std::byte(dist(rng));
         tree.insert(key, val);
         EXPECT_EQ(tree.search(key), val);
     }
@@ -240,7 +229,7 @@ TEST_F(BPlusTreeTest, RandomBinaryKeyValue) {
 TEST_F(BPlusTreeTest, ZeroAndLongKeysAndValues) {
     BPlusTree tree;
     ByteArray empty;
-    ByteArray bigKey(4096, 'K'), bigVal(4096, 'V');
+    ByteArray bigKey(4096, std::byte('K')), bigVal(4096, std::byte('V'));
     tree.insert(empty, empty);
     tree.insert(bigKey, bigVal);
 
@@ -300,14 +289,13 @@ TEST_F(BPlusTreeTest, RandomRemoveOrder) {
 
 TEST_F(BPlusTreeTest, EmptyStringKeyAndValue) {
     BPlusTree tree;
-    tree.insert(ByteArray(), ByteArray());          // 両方empty
-    tree.insert(toBytes(""), toBytes("not empty")); // ←上書きされる
-    tree.insert(toBytes("not empty"), toBytes("")); // ←別キー
+    tree.insert(ByteArray(), ByteArray());
+    tree.insert(toBytes(""), toBytes("not empty"));
+    tree.insert(toBytes("not empty"), toBytes(""));
 
-    // 空キーは一つだけ存在できる。その値は「not empty」。
     EXPECT_EQ(tree.search(ByteArray()), toBytes("not empty"));
-    EXPECT_EQ(tree.search(toBytes("")), toBytes("not empty"));   // 同じ
-    EXPECT_EQ(fromBytes(tree.search(toBytes("not empty"))), ""); // これは空文字列
+    EXPECT_EQ(tree.search(toBytes("")), toBytes("not empty"));
+    EXPECT_EQ(fromBytes(tree.search(toBytes("not empty"))), "");
 }
 
 TEST_F(BPlusTreeTest, OverwriteValueManyTimes) {
@@ -321,18 +309,17 @@ TEST_F(BPlusTreeTest, OverwriteValueManyTimes) {
 
 TEST(BPlusTreeIntegrityTest, ParentPointerConsistencyAfterSplitAndMerge) {
     BPlusTree tree;
-    // たくさんinsertして強制的に分割を起こす
     for (int i = 0; i < 100; ++i) {
-        tree.insert(ByteArray({'k', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+        ByteArray k = {std::byte('k'), std::byte(i)};
+        ByteArray v = {std::byte('v'), std::byte(i)};
+        tree.insert(k, v);
     }
-    // 一度全ページをキャッシュに乗せるためtraverseなど使う
     tree.traverse();
-    // 親ポインタ整合性チェック
     EXPECT_TRUE(tree.checkParentPointers());
 
-    // 次に大量に削除してマージや高さ縮小を誘発
     for (int i = 0; i < 90; ++i) {
-        tree.remove(ByteArray({'k', static_cast<uint8_t>(i)}));
+        ByteArray k = {std::byte('k'), std::byte(i)};
+        tree.remove(k);
     }
     tree.traverse();
     EXPECT_TRUE(tree.checkParentPointers());
@@ -340,25 +327,22 @@ TEST(BPlusTreeIntegrityTest, ParentPointerConsistencyAfterSplitAndMerge) {
 
 TEST(BPlusTreeIntegrityTest, ParentPointerConsistencyOnInsertSplitMerge) {
     BPlusTree tree;
-    // Insert (強制的に分割が起きるまで)
     for (int i = 0; i < 100; ++i)
-        tree.insert(ByteArray({'k', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+        tree.insert(ByteArray({std::byte('k'), std::byte(i)}), ByteArray({std::byte('v'), std::byte(i)}));
     tree.saveTree("test_tree_dir_integrity1");
     EXPECT_TRUE(tree.checkAllParentPointersStrict());
 
-    // Remove (マージが起きるまで)
     for (int i = 0; i < 95; ++i)
-        tree.remove(ByteArray({'k', static_cast<uint8_t>(i)}));
+        tree.remove(ByteArray({std::byte('k'), std::byte(i)}));
     tree.saveTree("test_tree_dir_integrity2");
     EXPECT_TRUE(tree.checkAllParentPointersStrict());
 }
 
 TEST(BPlusTreeIntegrityTest, ParentPointerAfterReload) {
-    // 一度保存した後、新しいTreeでロードし直しても整合性が保たれているか
     {
         BPlusTree tree;
         for (int i = 0; i < 40; ++i)
-            tree.insert(ByteArray({'a', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+            tree.insert(ByteArray({std::byte('a'), std::byte(i)}), ByteArray({std::byte('v'), std::byte(i)}));
         tree.saveTree("test_tree_dir_integrity3");
     }
     {

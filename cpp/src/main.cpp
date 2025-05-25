@@ -1,13 +1,14 @@
 #include "b_bplus_tree.hpp"
+#include <cstddef>
 #include <iostream>
 #include <string>
 
 ByteArray toBytes(const std::string &s) {
-    return ByteArray(s.begin(), s.end());
+    return ByteArray(reinterpret_cast<const std::byte *>(s.data()), reinterpret_cast<const std::byte *>(s.data() + s.size()));
 }
 
 std::string fromBytes(const ByteArray &b) {
-    return std::string(b.begin(), b.end());
+    return std::string(reinterpret_cast<const char *>(b.data()), b.size());
 }
 
 int main() {
