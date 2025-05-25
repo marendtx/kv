@@ -6,6 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <list>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -56,8 +57,11 @@ class BPlusTree {
 private:
     int rootPageID;
     int nextPageID = 0;
-    std::list<std::pair<int, Page *>> lruList;                                      // LRUリスト(先頭が最新)
-    std::unordered_map<int, std::list<std::pair<int, Page *>>::iterator> pageCache; // pageID->list iterator
+
+    // unique_ptrベース
+    std::list<std::pair<int, std::unique_ptr<Page>>> lruList;                                      // LRUリスト(先頭が最新)
+    std::unordered_map<int, std::list<std::pair<int, std::unique_ptr<Page>>>::iterator> pageCache; // pageID->list iterator
+
     std::set<int> freeList;
     std::string directory;
     size_t maxCacheSize;
@@ -91,9 +95,6 @@ public:
 // -- destructor --
 BPlusTree::~BPlusTree() {
     flushAll();
-    for (auto it = lruList.begin(); it != lruList.end(); ++it) {
-        delete it->second;
-    }
     lruList.clear();
     pageCache.clear();
 }
@@ -111,7 +112,7 @@ void BPlusTree::flushPage(Page *page) {
 // キャッシュ全flush
 void BPlusTree::flushAll() {
     for (auto &pr : lruList) {
-        flushPage(pr.second);
+        flushPage(pr.second.get());
     }
 }
 // LRU更新（先頭に移動）
@@ -124,11 +125,11 @@ void BPlusTree::touchLRU(int id) {
 // eviction
 void BPlusTree::evictIfNeeded() {
     while (lruList.size() > maxCacheSize) {
-        auto last = --lruList.end();
-        Page *page = last->second;
+        auto last = std::prev(lruList.end());
+        Page *page = last->second.get();
         flushPage(page); // dirtyならwrite-back
         pageCache.erase(last->first);
-        delete page;
+        // delete不要（unique_ptrで自動解放）
         lruList.erase(last);
     }
 }
@@ -140,10 +141,10 @@ int BPlusTree::createPage(bool isLeaf, int parentID) {
     } else {
         id = nextPageID++;
     }
-    Page *page = new Page(id, isLeaf);
+    auto page = std::make_unique<Page>(id, isLeaf);
     page->parentID = parentID;
     page->dirty = true; // 新規dirty
-    lruList.push_front({id, page});
+    lruList.push_front({id, std::move(page)});
     pageCache[id] = lruList.begin();
     evictIfNeeded();
     return id;
@@ -152,13 +153,14 @@ Page *BPlusTree::getPage(int id) {
     auto it = pageCache.find(id);
     if (it != pageCache.end()) {
         touchLRU(id);
-        return it->second->second;
+        return it->second->second.get();
     }
-    Page *page = readPageFromDisk(id, directory);
-    lruList.push_front({id, page});
+    // ディスクから読み込み
+    std::unique_ptr<Page> page(readPageFromDisk(id, directory));
+    lruList.push_front({id, std::move(page)});
     pageCache[id] = lruList.begin();
     evictIfNeeded();
-    return page;
+    return lruList.begin()->second.get();
 }
 void BPlusTree::setChildrenParentIDs(Page *parent) {
     for (int cid : parent->childrenIDs) {
@@ -240,7 +242,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
                 lruList.erase(it->second);
                 pageCache.erase(it);
             }
-            delete node;
+            // delete不要
         }
         return;
     }
@@ -340,7 +342,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
             lruList.erase(mapIt->second);
             pageCache.erase(mapIt);
         }
-        delete node;
+        // delete不要
 
         if (parentID != rootPageID && parent->keys.size() < minKeys)
             rebalanceAfterDeletion(parent, parentID);
@@ -372,7 +374,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
             lruList.erase(mapIt->second);
             pageCache.erase(mapIt);
         }
-        delete right;
+        // delete不要
 
         if (parentID != rootPageID && parent->keys.size() < minKeys)
             rebalanceAfterDeletion(parent, parentID);
@@ -600,8 +602,6 @@ void BPlusTree::saveTree(const std::string &dir) {
 }
 void BPlusTree::loadTree(const std::string &dir) {
     flushAll(); // 念のため
-    for (auto &pr : lruList)
-        delete pr.second;
     lruList.clear();
     pageCache.clear();
     freeList.clear();
