@@ -485,22 +485,20 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     Page *cursor = getPage(cursorID);
 
     while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
-            i++;
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+        int i = it - cursor->keys.begin();
         cursorID = cursor->childrenIDs[i];
         cursor = getPage(cursorID);
     }
 
-    for (size_t i = 0; i < cursor->keys.size(); ++i) {
-        if (cursor->keys[i] == key) {
-            cursor->values[i] = value;
-            cursor->dirty = true;
-            return;
-        }
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    if (it != cursor->keys.end() && !byteKeyLess(key, *it) && !byteKeyLess(*it, key)) {
+        int idx = it - cursor->keys.begin();
+        cursor->values[idx] = value;
+        cursor->dirty = true;
+        return;
     }
 
-    auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
     int pos = it - cursor->keys.begin();
     cursor->keys.insert(it, key);
     cursor->values.insert(cursor->values.begin() + pos, value);
@@ -509,6 +507,7 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
     if (cursor->keys.size() < ORDER)
         return;
 
+    // 以降、既存の分割処理
     int newLeafID = createPage(true, cursor->parentID);
     Page *newLeaf = getPage(newLeafID);
     int mid = (ORDER + 1) / 2;
@@ -548,14 +547,14 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
 ByteArray BPlusTree::search(const ByteArray &key) {
     Page *cursor = getPage(rootPageID);
     while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
-            i++;
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+        int i = it - cursor->keys.begin();
         cursor = getPage(cursor->childrenIDs[i]);
     }
-    for (size_t i = 0; i < cursor->keys.size(); ++i) {
-        if (cursor->keys[i] == key)
-            return cursor->values[i];
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    if (it != cursor->keys.end() && !byteKeyLess(key, *it) && !byteKeyLess(*it, key)) {
+        int idx = it - cursor->keys.begin();
+        return cursor->values[idx];
     }
     return {};
 }
@@ -563,20 +562,19 @@ void BPlusTree::remove(const ByteArray &key) {
     Page *cursor = getPage(rootPageID);
     int cursorID = rootPageID;
     while (!cursor->isLeaf) {
-        int i = 0;
-        while (i < cursor->keys.size() && byteKeyLessEqual(cursor->keys[i], key))
-            i++;
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+        int i = it - cursor->keys.begin();
         cursorID = cursor->childrenIDs[i];
         cursor = getPage(cursorID);
     }
-    for (size_t i = 0; i < cursor->keys.size(); ++i) {
-        if (cursor->keys[i] == key) {
-            cursor->keys.erase(cursor->keys.begin() + i);
-            cursor->values.erase(cursor->values.begin() + i);
-            cursor->dirty = true;
-            rebalanceAfterDeletion(cursor, cursorID);
-            return;
-        }
+
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    if (it != cursor->keys.end() && !byteKeyLess(key, *it) && !byteKeyLess(*it, key)) {
+        int idx = it - cursor->keys.begin();
+        cursor->keys.erase(cursor->keys.begin() + idx);
+        cursor->values.erase(cursor->values.begin() + idx);
+        cursor->dirty = true;
+        rebalanceAfterDeletion(cursor, cursorID);
     }
 }
 
