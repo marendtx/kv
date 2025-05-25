@@ -90,6 +90,8 @@ public:
     void visualize();
     std::vector<std::pair<ByteArray, ByteArray>> rangeSearch(const ByteArray &min, const ByteArray &max);
     void traverse();
+    bool checkParentPointers();
+    bool checkAllParentPointersStrict();
 };
 
 // -- destructor --
@@ -703,4 +705,91 @@ void BPlusTree::traverse() {
         cursor = getPage(cursor->nextLeafID);
     }
     std::cout << std::endl;
+}
+
+bool BPlusTree::checkParentPointers() {
+    std::set<int> visited;
+    std::function<bool(int, int)> dfs = [&](int pageID, int parentID) {
+        // getPageはconst外れるのでここはreadPageFromDiskを使うのが安全ですが、単体テスト時はキャッシュでOK
+        auto it = pageCache.find(pageID);
+        if (it == pageCache.end())
+            return false;
+        const Page *page = it->second->second.get();
+        if (page->parentID != parentID && parentID != -2)
+            return false; // -2: rootの親は除外
+        visited.insert(pageID);
+        if (!page->isLeaf) {
+            for (int cid : page->childrenIDs) {
+                if (!dfs(cid, pageID))
+                    return false;
+            }
+        }
+        return true;
+    };
+    bool ok = dfs(rootPageID, -2); // rootの親は特殊値
+    // 孤立ノードがないかも念のため
+    if (visited.size() != lruList.size())
+        return false;
+    return ok;
+}
+
+bool BPlusTree::checkAllParentPointersStrict() {
+    std::unordered_map<int, std::unique_ptr<Page>> allPages;
+    for (const auto &entry : std::filesystem::directory_iterator(directory)) {
+        auto path = entry.path().string();
+        if (path.find("/page_") != std::string::npos && path.find(".bin") != std::string::npos) {
+            size_t s = path.find("/page_") + 6;
+            size_t e = path.find(".bin");
+            int pid = std::stoi(path.substr(s, e - s));
+            try {
+                allPages[pid] = std::unique_ptr<Page>(BPlusTree::readPageFromDisk(pid, directory));
+            } catch (...) {
+                return false;
+            }
+        }
+    }
+    // (a) RootからDFSで全ノード到達性/循環チェック
+    std::set<int> visited;
+    std::function<bool(int, int)> dfs = [&](int pid, int parentID) {
+        if (visited.count(pid))
+            return false; // サイクル検出
+        visited.insert(pid);
+        const Page *page = allPages[pid].get();
+        // parent pointer check
+        if (pid == rootPageID) {
+            if (page->parentID != -1)
+                return false;
+        } else {
+            if (page->parentID != parentID)
+                return false;
+            if (allPages.count(page->parentID) == 0)
+                return false;
+            // 親のchildrenIDsに自分が含まれるか
+            const Page *parent = allPages.at(page->parentID).get();
+            if (std::find(parent->childrenIDs.begin(), parent->childrenIDs.end(), pid) == parent->childrenIDs.end())
+                return false;
+        }
+        // (c) Key昇順チェック
+        if (!std::is_sorted(page->keys.begin(), page->keys.end(), byteKeyLess))
+            return false;
+        // 子の親参照整合性
+        if (!page->isLeaf) {
+            for (int cid : page->childrenIDs) {
+                if (allPages.count(cid) == 0)
+                    return false;
+                const Page *child = allPages.at(cid).get();
+                if (child->parentID != pid)
+                    return false;
+                if (!dfs(cid, pid))
+                    return false;
+            }
+        }
+        return true;
+    };
+    if (!dfs(rootPageID, -1))
+        return false;
+    // (a) DFSで全ノードを訪問できたか
+    if (visited.size() != allPages.size())
+        return false; // 孤立ノード検出
+    return true;
 }

@@ -318,3 +318,52 @@ TEST_F(BPlusTreeTest, OverwriteValueManyTimes) {
         EXPECT_EQ(fromBytes(tree.search(toBytes("repeat"))), std::to_string(i));
     }
 }
+
+TEST(BPlusTreeIntegrityTest, ParentPointerConsistencyAfterSplitAndMerge) {
+    BPlusTree tree;
+    // たくさんinsertして強制的に分割を起こす
+    for (int i = 0; i < 100; ++i) {
+        tree.insert(ByteArray({'k', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+    }
+    // 一度全ページをキャッシュに乗せるためtraverseなど使う
+    tree.traverse();
+    // 親ポインタ整合性チェック
+    EXPECT_TRUE(tree.checkParentPointers());
+
+    // 次に大量に削除してマージや高さ縮小を誘発
+    for (int i = 0; i < 90; ++i) {
+        tree.remove(ByteArray({'k', static_cast<uint8_t>(i)}));
+    }
+    tree.traverse();
+    EXPECT_TRUE(tree.checkParentPointers());
+}
+
+TEST(BPlusTreeIntegrityTest, ParentPointerConsistencyOnInsertSplitMerge) {
+    BPlusTree tree;
+    // Insert (強制的に分割が起きるまで)
+    for (int i = 0; i < 100; ++i)
+        tree.insert(ByteArray({'k', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+    tree.saveTree("test_tree_dir_integrity1");
+    EXPECT_TRUE(tree.checkAllParentPointersStrict());
+
+    // Remove (マージが起きるまで)
+    for (int i = 0; i < 95; ++i)
+        tree.remove(ByteArray({'k', static_cast<uint8_t>(i)}));
+    tree.saveTree("test_tree_dir_integrity2");
+    EXPECT_TRUE(tree.checkAllParentPointersStrict());
+}
+
+TEST(BPlusTreeIntegrityTest, ParentPointerAfterReload) {
+    // 一度保存した後、新しいTreeでロードし直しても整合性が保たれているか
+    {
+        BPlusTree tree;
+        for (int i = 0; i < 40; ++i)
+            tree.insert(ByteArray({'a', static_cast<uint8_t>(i)}), ByteArray({'v', static_cast<uint8_t>(i)}));
+        tree.saveTree("test_tree_dir_integrity3");
+    }
+    {
+        BPlusTree tree2;
+        tree2.loadTree("test_tree_dir_integrity3");
+        EXPECT_TRUE(tree2.checkAllParentPointersStrict());
+    }
+}
