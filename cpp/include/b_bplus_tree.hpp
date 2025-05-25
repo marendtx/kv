@@ -42,6 +42,45 @@ ByteArray readBytes(std::ifstream &ifs) {
     return data;
 }
 
+void writeBytes(std::ofstream &ofs, const ByteArray &arr) {
+    int len = static_cast<int>(arr.size());
+    ofs.write(reinterpret_cast<const char *>(&len), sizeof(int));
+    if (len > 0)
+        ofs.write(reinterpret_cast<const char *>(arr.data()), len);
+}
+
+enum class WalOp : uint8_t {
+    Insert = 1,
+    Remove = 2,
+};
+
+struct WalEntry {
+    WalOp op;
+    std::vector<std::byte> key;
+    std::vector<std::byte> value;
+};
+
+void writeWalEntry(std::ofstream &ofs, const WalEntry &entry) {
+    ofs.write(reinterpret_cast<const char *>(&entry.op), 1);
+    writeBytes(ofs, entry.key);
+    writeBytes(ofs, entry.value);
+    ofs.flush(); // flush必須
+    if (!ofs)
+        throw std::runtime_error("WAL write failed");
+}
+
+WalEntry readWalEntry(std::ifstream &ifs) {
+    WalEntry entry;
+    uint8_t op = 0;
+    ifs.read(reinterpret_cast<char *>(&op), 1);
+    if (!ifs)
+        throw std::runtime_error("WAL read error (op)");
+    entry.op = static_cast<WalOp>(op);
+    entry.key = readBytes(ifs);
+    entry.value = readBytes(ifs);
+    return entry;
+}
+
 struct Page {
     int pageID;
     bool isLeaf;
@@ -68,6 +107,10 @@ private:
     std::string directory;
     size_t maxCacheSize;
 
+    std::string walFilename = "tree_wal.log";
+    std::ofstream walWriter;
+    bool walRecoveryMode = false;
+
     int createPage(bool isLeaf, int parentID = -1);
     Page *getPage(int id);
     void touchLRU(int id);
@@ -82,11 +125,14 @@ private:
     void flushAll();
 
 public:
-    BPlusTree(size_t cacheSize = MAX_CACHE_SIZE);
+    BPlusTree(size_t cacheSize = MAX_CACHE_SIZE, const std::string &walFile = "tree_wal.log");
     ~BPlusTree();
     void insert(const ByteArray &key, const ByteArray &value);
     ByteArray search(const ByteArray &key);
     void remove(const ByteArray &key);
+    void insertFromWAL(const ByteArray &key, const ByteArray &value);
+    void removeFromWAL(const ByteArray &key);
+    void recoverFromWAL(const std::string &dir);
     void saveTree(const std::string &dir);
     void loadTree(const std::string &dir);
     void visualize();
@@ -99,11 +145,15 @@ public:
 // -- destructor --
 BPlusTree::~BPlusTree() {
     flushAll();
+    walWriter.close();
     lruList.clear();
     pageCache.clear();
 }
-BPlusTree::BPlusTree(size_t cacheSize) : maxCacheSize(cacheSize) {
+BPlusTree::BPlusTree(size_t cacheSize, const std::string &walFile) : maxCacheSize(cacheSize), walFilename(walFile) {
     rootPageID = createPage(true, -1);
+    walWriter.open(walFilename, std::ios::binary | std::ios::app);
+    if (!walWriter)
+        throw std::runtime_error("Failed to open WAL file");
 }
 
 // flush1ページ
@@ -159,6 +209,12 @@ Page *BPlusTree::getPage(int id) {
         touchLRU(id);
         return it->second->second.get();
     }
+
+    // WALによるリカバリモードであれば、ディスクアクセスはしない。
+    if (walRecoveryMode) {
+        return nullptr;
+    }
+
     // ディスクから読み込み
     std::unique_ptr<Page> page(readPageFromDisk(id, directory));
     lruList.push_front({id, std::move(page)});
@@ -483,6 +539,9 @@ Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
     return page;
 }
 void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
+    WalEntry entry{WalOp::Insert, key, value};
+    writeWalEntry(walWriter, entry);
+
     int cursorID = rootPageID;
     Page *cursor = getPage(cursorID);
 
@@ -560,6 +619,9 @@ ByteArray BPlusTree::search(const ByteArray &key) {
     return {};
 }
 void BPlusTree::remove(const ByteArray &key) {
+    WalEntry entry{WalOp::Remove, key, {}};
+    writeWalEntry(walWriter, entry);
+
     Page *cursor = getPage(rootPageID);
     int cursorID = rootPageID;
     while (!cursor->isLeaf) {
@@ -577,6 +639,141 @@ void BPlusTree::remove(const ByteArray &key) {
         cursor->dirty = true;
         rebalanceAfterDeletion(cursor, cursorID);
     }
+}
+
+void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
+    if (rootPageID == -1) {
+        rootPageID = createPage(true, -1); // 必ずrootを作成
+    }
+
+    int cursorID = rootPageID;
+    Page *cursor = getPage(cursorID);
+    if (!cursor)
+        return;
+
+    while (!cursor->isLeaf) {
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+        int i = it - cursor->keys.begin();
+        cursorID = cursor->childrenIDs[i];
+        cursor = getPage(cursorID);
+        if (!cursor)
+            return;
+    }
+
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    if (it != cursor->keys.end() && !byteKeyLess(key, *it) && !byteKeyLess(*it, key)) {
+        int idx = it - cursor->keys.begin();
+        cursor->values[idx] = value;
+        cursor->dirty = true;
+        return;
+    }
+
+    int pos = it - cursor->keys.begin();
+    cursor->keys.insert(it, key);
+    cursor->values.insert(cursor->values.begin() + pos, value);
+    cursor->dirty = true;
+
+    if (cursor->keys.size() < ORDER)
+        return;
+
+    int newLeafID = createPage(true, cursor->parentID);
+    Page *newLeaf = getPage(newLeafID);
+    if (!newLeaf)
+        return;
+    int mid = (ORDER + 1) / 2;
+
+    newLeaf->keys.assign(cursor->keys.begin() + mid, cursor->keys.end());
+    newLeaf->values.assign(cursor->values.begin() + mid, cursor->values.end());
+    cursor->keys.resize(mid);
+    cursor->values.resize(mid);
+
+    newLeaf->nextLeafID = cursor->nextLeafID;
+    cursor->nextLeafID = newLeafID;
+    cursor->dirty = true;
+    newLeaf->dirty = true;
+
+    ByteArray newKey = newLeaf->keys[0];
+
+    if (cursorID == rootPageID) {
+        int newRootID = createPage(false, -1);
+        Page *newRoot = getPage(newRootID);
+        newRoot->keys.push_back(newKey);
+        newRoot->childrenIDs.push_back(cursorID);
+        newRoot->childrenIDs.push_back(newLeafID);
+
+        cursor->parentID = newRootID;
+        newLeaf->parentID = newRootID;
+        setChildrenParentIDs(newRoot);
+
+        rootPageID = newRootID;
+        newRoot->dirty = true;
+        cursor->dirty = true;
+        newLeaf->dirty = true;
+    } else {
+        int parentID = cursor->parentID;
+        insertInternal(newKey, parentID, newLeafID);
+    }
+}
+void BPlusTree::removeFromWAL(const ByteArray &key) {
+    if (rootPageID == -1)
+        return;
+    Page *cursor = getPage(rootPageID);
+    if (!cursor)
+        return;
+    int cursorID = rootPageID;
+    while (!cursor->isLeaf) {
+        auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+        int i = it - cursor->keys.begin();
+        cursorID = cursor->childrenIDs[i];
+        cursor = getPage(cursorID);
+        if (!cursor)
+            return;
+    }
+
+    auto it = std::lower_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
+    if (it != cursor->keys.end() && !byteKeyLess(key, *it) && !byteKeyLess(*it, key)) {
+        int idx = it - cursor->keys.begin();
+        cursor->keys.erase(cursor->keys.begin() + idx);
+        cursor->values.erase(cursor->values.begin() + idx);
+        cursor->dirty = true;
+        rebalanceAfterDeletion(cursor, cursorID);
+    }
+}
+
+void BPlusTree::recoverFromWAL(const std::string &dir) {
+    flushAll();
+    lruList.clear();
+    pageCache.clear();
+    freeList.clear();
+    walRecoveryMode = true;
+    rootPageID = -1;
+
+    std::ifstream walRead(walFilename, std::ios::binary);
+    if (!walRead)
+        return;
+
+    while (true) {
+        try {
+            WalEntry entry = readWalEntry(walRead);
+            if (entry.op == WalOp::Insert) {
+                insertFromWAL(entry.key, entry.value);
+            } else if (entry.op == WalOp::Remove) {
+                removeFromWAL(entry.key);
+            }
+        } catch (const std::exception &e) {
+            if (walRead.eof() || walRead.peek() == EOF) {
+                // 通常終了
+                std::cerr << "[WAL RECOVERY] complete: " << e.what() << std::endl;
+            } else {
+                // それ以外の失敗は本当のエラー
+                std::cerr << "[WAL RECOVERY] stop: " << e.what() << std::endl;
+            }
+            break;
+        }
+    }
+
+    walRecoveryMode = false;
+    directory = dir;
 }
 
 void BPlusTree::saveTree(const std::string &dir) {

@@ -351,3 +351,41 @@ TEST(BPlusTreeIntegrityTest, ParentPointerAfterReload) {
         EXPECT_TRUE(tree2.checkAllParentPointersStrict());
     }
 }
+
+TEST_F(BPlusTreeTest, WALRecovery) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("foo"), toBytes("val1"));
+        tree.insert(toBytes("bar"), toBytes("val2"));
+        tree.remove(toBytes("foo"));
+        tree.saveTree(testDir);
+    }
+
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    tree2.recoverFromWAL("test_wal_recovery");
+    tree2.saveTree("test_wal_recovery");
+
+    EXPECT_TRUE(tree2.search(toBytes("foo")).empty());
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("bar"))), "val2");
+}
+
+TEST_F(BPlusTreeTest, WALRecovery_OnlyInsert) {
+    std::filesystem::remove("tree_wal.log");
+    {
+        BPlusTree tree;
+        tree.insert(toBytes("A"), toBytes("a"));
+        tree.insert(toBytes("B"), toBytes("b"));
+        tree.insert(toBytes("C"), toBytes("c"));
+    }
+    std::filesystem::remove_all(testDir);
+
+    BPlusTree tree2;
+    tree2.recoverFromWAL(testDir);
+    tree2.saveTree(testDir);
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("A"))), "a");
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("B"))), "b");
+    EXPECT_EQ(fromBytes(tree2.search(toBytes("C"))), "c");
+}
