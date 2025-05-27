@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS base
+FROM ubuntu:24.04 AS build
 
 # install C++ and GoogleTest
 RUN apt-get update && apt-get install -y \
@@ -35,6 +35,8 @@ RUN git clone https://github.com/eBay/NuRaft.git $HOME/NuRaft && \
 WORKDIR /app
 COPY . .
 RUN cmake -S . -B build -DCMAKE_PREFIX_PATH=/root/.local && cmake --build build
+
+FROM ghcr.io/marendtx/kv:base-20250528 AS base
 
 FROM ubuntu:24.04 AS test
 RUN apt-get update && apt-get install -y libstdc++6 && apt-get clean
