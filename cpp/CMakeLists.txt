@@ -14,13 +14,18 @@ include_directories(
 )
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+# find_package(NuRaft CONFIG REQUIRED)
+
+# NuRaft
+include_directories($ENV{HOME}/.local/include)
+include_directories($ENV{HOME}/.local/include/libnuraft)
+link_directories($ENV{HOME}/.local/lib)
 
 # --- gRPCサーバー ---
 add_executable(grpc_server
     src/server.cpp
     api/hello.pb.cc
     api/hello.grpc.pb.cc
-    src/mylib.cpp     # 必要に応じて
 )
 target_include_directories(grpc_server PRIVATE include api)
 target_link_libraries(grpc_server
@@ -33,7 +38,6 @@ add_executable(grpc_client
     src/client.cpp
     api/hello.pb.cc
     api/hello.grpc.pb.cc
-    src/mylib.cpp     # 必要に応じて
 )
 target_include_directories(grpc_client PRIVATE include api)
 target_link_libraries(grpc_client
@@ -44,9 +48,13 @@ target_link_libraries(grpc_client
 # --- 通常アプリ ---
 add_executable(myapp
     src/main.cpp
-    src/mylib.cpp
 )
 target_include_directories(myapp PRIVATE include)
+target_link_libraries(myapp
+    gRPC::grpc++
+    protobuf::libprotobuf
+    nuraft
+)
 
 # --- テスト ---
 find_package(GTest REQUIRED)
