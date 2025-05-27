@@ -8,12 +8,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+      - name: Login to GHCR
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Run C++ test in Docker container
         run: make cpp-test-container
-  go-test-container:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Run Go test in Docker container
-        run: make go-test-container

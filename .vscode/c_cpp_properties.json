@@ -3,7 +3,10 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/cpp/api",
+                "${workspaceFolder}/cpp/*",
+                "/home/marendtx/.local/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
