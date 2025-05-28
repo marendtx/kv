@@ -731,11 +731,46 @@ public:
     }
 };
 
-// ------------- サーバ起動 ------------- //
+// サーバメンバー一覧表示
+void server_list(const ptr<raft_server> &raft) {
+    std::vector<ptr<srv_config>> configs;
+    raft->get_srv_config_all(configs);
+    int leader_id = raft->get_leader();
+    std::cout << "[Members]\n";
+    for (auto &srv : configs) {
+        std::cout << "  id: " << srv->get_id()
+                  << "  endpoint: " << srv->get_endpoint();
+        if (srv->get_id() == leader_id)
+            std::cout << " (LEADER)";
+        std::cout << std::endl;
+    }
+}
+void server_status(const ptr<raft_server> &raft) {
+    std::cout << "[Status]\n"
+              << "  node_id: " << raft->get_id() << "\n"
+              << "  leader_id: " << raft->get_leader() << "\n"
+              << "  commit_index: " << raft->get_committed_log_idx() << "\n";
+}
+
+void server_console(const ptr<raft_server> &raft) {
+    std::string cmd;
+    std::cout << "serverコマンド: list/status/quit\n";
+    while (std::cout << "server> ", std::getline(std::cin, cmd)) {
+        if (cmd == "list")
+            server_list(raft);
+        else if (cmd == "status")
+            server_status(raft);
+        else if (cmd == "quit" || cmd == "exit")
+            break;
+        else
+            std::cout << "コマンド: list/status/quit\n";
+    }
+}
+
 void RunServer(int node_id, const std::string &grpc_host, const int grpc_port, const std::string &raft_host, int raft_port) {
     auto raft_endpoint = raft_host + ":" + std::to_string(raft_port);
     auto grpc_endpoint = grpc_host + ":" + std::to_string(grpc_port);
-    // Raftセットアップ（1ノード用。複数ノード時はクラスタ設定要調整）
+
     auto &kv = get_kv_singleton();
     kv.raft_state_machine = cs_new<BPTreeStateMachine>(kv.bptree);
     auto state_mgr = cs_new<inmem_state_mgr>(node_id, raft_endpoint);
@@ -754,15 +789,18 @@ void RunServer(int node_id, const std::string &grpc_host, const int grpc_port, c
     }
     std::cout << "Raft initialized. NodeID=" << node_id << ", endpoint=" << raft_endpoint << std::endl;
 
-    // gRPCサーバ起動
+    // gRPCサーバ起動（別スレッドで）
     KVStoreServiceImpl service;
     grpc::ServerBuilder builder;
     builder.AddListeningPort(grpc_endpoint, grpc::InsecureServerCredentials());
     builder.RegisterService(&service);
     std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     std::cout << "gRPCサーバ起動: " << grpc_endpoint << std::endl;
-    server->Wait();
 
-    // サーバ停止時はRaftをシャットダウン
+    // インタラクティブコマンドループ（メインスレッド）
+    server_console(kv.raft);
+
+    // サーバ停止
+    server->Shutdown();
     launcher.shutdown();
 }
