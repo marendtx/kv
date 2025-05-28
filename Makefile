@@ -1,33 +1,17 @@
-test-local: cpp-test-local go-test-local
+compile:
+	protoc -I api --cpp_out=api --grpc_out=api --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` api/hello.proto
 
-test-container: cpp-test-container go-test-container
+local-build:
+	cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build
 
-cpp-proto-compile:
-	cd cpp && protoc -I api --cpp_out=api --grpc_out=api --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` api/hello.proto
+local-run:
+	cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build && ./build/myapp && rm -rf build && rm -f tree_data/*.bin && rm -f *.log
 
-cpp-build:
-	cd cpp && cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build
+local-test:
+	cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build && rm -f tree_data/*.bin && rm -f *.log
 
-cpp-test-local:
-	cd cpp && cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build && ctest --test-dir build --output-on-failure && rm -rf build && rm -f tree_data/*.bin
+docker-run:
+	docker build --target app -t cpp-app -f Dockerfile . && docker run cpp-app
 
-cpp-test-container:
-	cd cpp && docker build --target test -t cpp-test -f Dockerfile . && docker run cpp-test
-
-cpp-run-local:
-	cd cpp && cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/.local && cmake --build build && ./build/myapp && rm -rf build && rm -f tree_data/*.bin
-
-cpp-run-container:
-	cd cpp && docker build --target app -t cpp-app -f Dockerfile . && docker run cpp-app
-
-go-test-local:
-	cd go && go test -v ./...
-
-go-test-container:
-	cd go && docker build -f Dockerfile.test -t go-test . && docker run go-test
-
-go-run-local:
-	cd go && go run main.go
-
-go-run-container:
-	cd go && docker build -f Dockerfile.app -t go-app . && docker run go-app
+docker-test:
+	docker build --target test -t cpp-test -f Dockerfile . && docker run cpp-test
