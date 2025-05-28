@@ -3,7 +3,7 @@ name: kv test
 on: [push, pull_request]
 
 jobs:
-  cpp-test-container:
+  docker-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
