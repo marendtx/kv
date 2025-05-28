@@ -525,6 +525,93 @@ public:
         }
         return grpc::Status::OK;
     }
+
+    // --- Join（ノード追加: リーダーが処理） ---
+    grpc::Status Join(grpc::ServerContext *context, const kvstore::JoinRequest *request, kvstore::JoinResponse *response) override {
+        auto raft = get_kv_singleton().raft;
+        if (!raft || !raft->is_leader()) {
+            response->set_success(false);
+            response->set_error("not leader");
+            return grpc::Status::OK;
+        }
+
+        int new_node_id;
+        try {
+            new_node_id = std::stoi(request->node_id());
+        } catch (...) {
+            response->set_success(false);
+            response->set_error("invalid node_id");
+            return grpc::Status::OK;
+        }
+        std::string endpoint = request->raft_endpoint();
+
+        // すでにクラスタに存在しないかチェック
+        std::vector<ptr<nuraft::srv_config>> configs;
+        raft->get_srv_config_all(configs);
+        for (auto &s : configs) {
+            if (s->get_id() == new_node_id) {
+                response->set_success(false);
+                response->set_error("already exists");
+                return grpc::Status::OK;
+            }
+        }
+
+        nuraft::srv_config srv_conf_to_add(new_node_id, endpoint);
+        // ★ここが公式サンプル流
+        auto ret = raft->add_srv(srv_conf_to_add);
+        if (!ret || !ret->get_accepted()) {
+            response->set_success(false);
+            response->set_error("add_srv failed: " + std::to_string(ret ? ret->get_result_code() : -1));
+            return grpc::Status::OK;
+        }
+        response->set_success(true);
+        response->set_error("");
+        return grpc::Status::OK;
+    }
+
+    // --- Leave（ノード除去: リーダーが処理） ---
+    grpc::Status Leave(grpc::ServerContext *context, const kvstore::LeaveRequest *request, kvstore::LeaveResponse *response) override {
+        auto raft = get_kv_singleton().raft;
+        if (!raft || !raft->is_leader()) {
+            response->set_success(false);
+            response->set_error("not leader");
+            return grpc::Status::OK;
+        }
+
+        int node_id;
+        try {
+            node_id = std::stoi(request->node_id());
+        } catch (...) {
+            response->set_success(false);
+            response->set_error("invalid node_id");
+            return grpc::Status::OK;
+        }
+
+        // 存在確認
+        std::vector<ptr<nuraft::srv_config>> configs;
+        raft->get_srv_config_all(configs);
+        bool found = false;
+        for (auto &s : configs) {
+            if (s->get_id() == node_id)
+                found = true;
+        }
+        if (!found) {
+            response->set_success(false);
+            response->set_error("node not found");
+            return grpc::Status::OK;
+        }
+
+        // 公式サンプル流 remove_srv
+        auto ret = raft->remove_srv(node_id);
+        if (!ret || !ret->get_accepted()) {
+            response->set_success(false);
+            response->set_error("remove_srv failed: " + std::to_string(ret ? ret->get_result_code() : -1));
+            return grpc::Status::OK;
+        }
+        response->set_success(true);
+        response->set_error("");
+        return grpc::Status::OK;
+    }
 };
 
 // ------------- サーバ起動 ------------- //

@@ -6,7 +6,6 @@ service KVStore {
     rpc Put(PutRequest) returns (PutResponse);
     rpc Get(GetRequest) returns (GetResponse);
     rpc Delete(DeleteRequest) returns (DeleteResponse);
-    rpc Status(StatusRequest) returns (StatusResponse);
     rpc Join(JoinRequest) returns (JoinResponse);
     rpc Leave(LeaveRequest) returns (LeaveResponse);
 }
@@ -37,23 +36,19 @@ message DeleteResponse {
     string error = 2;
 }
 
-message StatusRequest {}
-message StatusResponse {
-    string role = 1;     // "Leader" or "Follower"
-    int32 node_id = 2;
-    int32 term = 3;
-    string leader_address = 4;
-}
-
 message JoinRequest {
-    string address = 1; // 新ノードのgRPCアドレス
+    string node_id = 1;
+    string raft_endpoint = 2;
 }
 message JoinResponse {
     bool success = 1;
     string error = 2;
 }
 
-message LeaveRequest {}
+// Leaveリクエスト
+message LeaveRequest {
+    string node_id = 1;
+}
 message LeaveResponse {
     bool success = 1;
     string error = 2;

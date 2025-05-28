@@ -57,13 +57,6 @@ class KVStore final {
     std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::DeleteResponse>> PrepareAsyncDelete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) {
       return std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::DeleteResponse>>(PrepareAsyncDeleteRaw(context, request, cq));
     }
-    virtual ::grpc::Status Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::kvstore::StatusResponse* response) = 0;
-    std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>> AsyncStatus(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) {
-      return std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>>(AsyncStatusRaw(context, request, cq));
-    }
-    std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>> PrepareAsyncStatus(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) {
-      return std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>>(PrepareAsyncStatusRaw(context, request, cq));
-    }
     virtual ::grpc::Status Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::kvstore::JoinResponse* response) = 0;
     std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::JoinResponse>> AsyncJoin(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) {
       return std::unique_ptr< ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::JoinResponse>>(AsyncJoinRaw(context, request, cq));
@@ -87,8 +80,6 @@ class KVStore final {
       virtual void Get(::grpc::ClientContext* context, const ::kvstore::GetRequest* request, ::kvstore::GetResponse* response, ::grpc::ClientUnaryReactor* reactor) = 0;
       virtual void Delete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest* request, ::kvstore::DeleteResponse* response, std::function<void(::grpc::Status)>) = 0;
       virtual void Delete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest* request, ::kvstore::DeleteResponse* response, ::grpc::ClientUnaryReactor* reactor) = 0;
-      virtual void Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response, std::function<void(::grpc::Status)>) = 0;
-      virtual void Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response, ::grpc::ClientUnaryReactor* reactor) = 0;
       virtual void Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response, std::function<void(::grpc::Status)>) = 0;
       virtual void Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response, ::grpc::ClientUnaryReactor* reactor) = 0;
       virtual void Leave(::grpc::ClientContext* context, const ::kvstore::LeaveRequest* request, ::kvstore::LeaveResponse* response, std::function<void(::grpc::Status)>) = 0;
@@ -104,8 +95,6 @@ class KVStore final {
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::GetResponse>* PrepareAsyncGetRaw(::grpc::ClientContext* context, const ::kvstore::GetRequest& request, ::grpc::CompletionQueue* cq) = 0;
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::DeleteResponse>* AsyncDeleteRaw(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) = 0;
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::DeleteResponse>* PrepareAsyncDeleteRaw(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) = 0;
-    virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>* AsyncStatusRaw(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) = 0;
-    virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::StatusResponse>* PrepareAsyncStatusRaw(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) = 0;
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::JoinResponse>* AsyncJoinRaw(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) = 0;
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::JoinResponse>* PrepareAsyncJoinRaw(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) = 0;
     virtual ::grpc::ClientAsyncResponseReaderInterface< ::kvstore::LeaveResponse>* AsyncLeaveRaw(::grpc::ClientContext* context, const ::kvstore::LeaveRequest& request, ::grpc::CompletionQueue* cq) = 0;
@@ -135,13 +124,6 @@ class KVStore final {
     std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::DeleteResponse>> PrepareAsyncDelete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) {
       return std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::DeleteResponse>>(PrepareAsyncDeleteRaw(context, request, cq));
     }
-    ::grpc::Status Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::kvstore::StatusResponse* response) override;
-    std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>> AsyncStatus(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) {
-      return std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>>(AsyncStatusRaw(context, request, cq));
-    }
-    std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>> PrepareAsyncStatus(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) {
-      return std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>>(PrepareAsyncStatusRaw(context, request, cq));
-    }
     ::grpc::Status Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::kvstore::JoinResponse* response) override;
     std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::JoinResponse>> AsyncJoin(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) {
       return std::unique_ptr< ::grpc::ClientAsyncResponseReader< ::kvstore::JoinResponse>>(AsyncJoinRaw(context, request, cq));
@@ -165,8 +147,6 @@ class KVStore final {
       void Get(::grpc::ClientContext* context, const ::kvstore::GetRequest* request, ::kvstore::GetResponse* response, ::grpc::ClientUnaryReactor* reactor) override;
       void Delete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest* request, ::kvstore::DeleteResponse* response, std::function<void(::grpc::Status)>) override;
       void Delete(::grpc::ClientContext* context, const ::kvstore::DeleteRequest* request, ::kvstore::DeleteResponse* response, ::grpc::ClientUnaryReactor* reactor) override;
-      void Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response, std::function<void(::grpc::Status)>) override;
-      void Status(::grpc::ClientContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response, ::grpc::ClientUnaryReactor* reactor) override;
       void Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response, std::function<void(::grpc::Status)>) override;
       void Join(::grpc::ClientContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response, ::grpc::ClientUnaryReactor* reactor) override;
       void Leave(::grpc::ClientContext* context, const ::kvstore::LeaveRequest* request, ::kvstore::LeaveResponse* response, std::function<void(::grpc::Status)>) override;
@@ -188,8 +168,6 @@ class KVStore final {
     ::grpc::ClientAsyncResponseReader< ::kvstore::GetResponse>* PrepareAsyncGetRaw(::grpc::ClientContext* context, const ::kvstore::GetRequest& request, ::grpc::CompletionQueue* cq) override;
     ::grpc::ClientAsyncResponseReader< ::kvstore::DeleteResponse>* AsyncDeleteRaw(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) override;
     ::grpc::ClientAsyncResponseReader< ::kvstore::DeleteResponse>* PrepareAsyncDeleteRaw(::grpc::ClientContext* context, const ::kvstore::DeleteRequest& request, ::grpc::CompletionQueue* cq) override;
-    ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>* AsyncStatusRaw(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) override;
-    ::grpc::ClientAsyncResponseReader< ::kvstore::StatusResponse>* PrepareAsyncStatusRaw(::grpc::ClientContext* context, const ::kvstore::StatusRequest& request, ::grpc::CompletionQueue* cq) override;
     ::grpc::ClientAsyncResponseReader< ::kvstore::JoinResponse>* AsyncJoinRaw(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) override;
     ::grpc::ClientAsyncResponseReader< ::kvstore::JoinResponse>* PrepareAsyncJoinRaw(::grpc::ClientContext* context, const ::kvstore::JoinRequest& request, ::grpc::CompletionQueue* cq) override;
     ::grpc::ClientAsyncResponseReader< ::kvstore::LeaveResponse>* AsyncLeaveRaw(::grpc::ClientContext* context, const ::kvstore::LeaveRequest& request, ::grpc::CompletionQueue* cq) override;
@@ -197,7 +175,6 @@ class KVStore final {
     const ::grpc::internal::RpcMethod rpcmethod_Put_;
     const ::grpc::internal::RpcMethod rpcmethod_Get_;
     const ::grpc::internal::RpcMethod rpcmethod_Delete_;
-    const ::grpc::internal::RpcMethod rpcmethod_Status_;
     const ::grpc::internal::RpcMethod rpcmethod_Join_;
     const ::grpc::internal::RpcMethod rpcmethod_Leave_;
   };
@@ -210,7 +187,6 @@ class KVStore final {
     virtual ::grpc::Status Put(::grpc::ServerContext* context, const ::kvstore::PutRequest* request, ::kvstore::PutResponse* response);
     virtual ::grpc::Status Get(::grpc::ServerContext* context, const ::kvstore::GetRequest* request, ::kvstore::GetResponse* response);
     virtual ::grpc::Status Delete(::grpc::ServerContext* context, const ::kvstore::DeleteRequest* request, ::kvstore::DeleteResponse* response);
-    virtual ::grpc::Status Status(::grpc::ServerContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response);
     virtual ::grpc::Status Join(::grpc::ServerContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response);
     virtual ::grpc::Status Leave(::grpc::ServerContext* context, const ::kvstore::LeaveRequest* request, ::kvstore::LeaveResponse* response);
   };
@@ -275,32 +251,12 @@ class KVStore final {
     }
   };
   template <class BaseClass>
-  class WithAsyncMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithAsyncMethod_Status() {
-      ::grpc::Service::MarkMethodAsync(3);
-    }
-    ~WithAsyncMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable synchronous version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-    void RequestStatus(::grpc::ServerContext* context, ::kvstore::StatusRequest* request, ::grpc::ServerAsyncResponseWriter< ::kvstore::StatusResponse>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(3, context, request, response, new_call_cq, notification_cq, tag);
-    }
-  };
-  template <class BaseClass>
   class WithAsyncMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithAsyncMethod_Join() {
-      ::grpc::Service::MarkMethodAsync(4);
+      ::grpc::Service::MarkMethodAsync(3);
     }
     ~WithAsyncMethod_Join() override {
       BaseClassMustBeDerivedFromService(this);
@@ -311,7 +267,7 @@ class KVStore final {
       return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
     }
     void RequestJoin(::grpc::ServerContext* context, ::kvstore::JoinRequest* request, ::grpc::ServerAsyncResponseWriter< ::kvstore::JoinResponse>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(4, context, request, response, new_call_cq, notification_cq, tag);
+      ::grpc::Service::RequestAsyncUnary(3, context, request, response, new_call_cq, notification_cq, tag);
     }
   };
   template <class BaseClass>
@@ -320,7 +276,7 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithAsyncMethod_Leave() {
-      ::grpc::Service::MarkMethodAsync(5);
+      ::grpc::Service::MarkMethodAsync(4);
     }
     ~WithAsyncMethod_Leave() override {
       BaseClassMustBeDerivedFromService(this);
@@ -331,10 +287,10 @@ class KVStore final {
       return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
     }
     void RequestLeave(::grpc::ServerContext* context, ::kvstore::LeaveRequest* request, ::grpc::ServerAsyncResponseWriter< ::kvstore::LeaveResponse>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(5, context, request, response, new_call_cq, notification_cq, tag);
+      ::grpc::Service::RequestAsyncUnary(4, context, request, response, new_call_cq, notification_cq, tag);
     }
   };
-  typedef WithAsyncMethod_Put<WithAsyncMethod_Get<WithAsyncMethod_Delete<WithAsyncMethod_Status<WithAsyncMethod_Join<WithAsyncMethod_Leave<Service > > > > > > AsyncService;
+  typedef WithAsyncMethod_Put<WithAsyncMethod_Get<WithAsyncMethod_Delete<WithAsyncMethod_Join<WithAsyncMethod_Leave<Service > > > > > AsyncService;
   template <class BaseClass>
   class WithCallbackMethod_Put : public BaseClass {
    private:
@@ -417,45 +373,18 @@ class KVStore final {
       ::grpc::CallbackServerContext* /*context*/, const ::kvstore::DeleteRequest* /*request*/, ::kvstore::DeleteResponse* /*response*/)  { return nullptr; }
   };
   template <class BaseClass>
-  class WithCallbackMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithCallbackMethod_Status() {
-      ::grpc::Service::MarkMethodCallback(3,
-          new ::grpc::internal::CallbackUnaryHandler< ::kvstore::StatusRequest, ::kvstore::StatusResponse>(
-            [this](
-                   ::grpc::CallbackServerContext* context, const ::kvstore::StatusRequest* request, ::kvstore::StatusResponse* response) { return this->Status(context, request, response); }));}
-    void SetMessageAllocatorFor_Status(
-        ::grpc::MessageAllocator< ::kvstore::StatusRequest, ::kvstore::StatusResponse>* allocator) {
-      ::grpc::internal::MethodHandler* const handler = ::grpc::Service::GetHandler(3);
-      static_cast<::grpc::internal::CallbackUnaryHandler< ::kvstore::StatusRequest, ::kvstore::StatusResponse>*>(handler)
-              ->SetMessageAllocator(allocator);
-    }
-    ~WithCallbackMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable synchronous version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-    virtual ::grpc::ServerUnaryReactor* Status(
-      ::grpc::CallbackServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/)  { return nullptr; }
-  };
-  template <class BaseClass>
   class WithCallbackMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithCallbackMethod_Join() {
-      ::grpc::Service::MarkMethodCallback(4,
+      ::grpc::Service::MarkMethodCallback(3,
           new ::grpc::internal::CallbackUnaryHandler< ::kvstore::JoinRequest, ::kvstore::JoinResponse>(
             [this](
                    ::grpc::CallbackServerContext* context, const ::kvstore::JoinRequest* request, ::kvstore::JoinResponse* response) { return this->Join(context, request, response); }));}
     void SetMessageAllocatorFor_Join(
         ::grpc::MessageAllocator< ::kvstore::JoinRequest, ::kvstore::JoinResponse>* allocator) {
-      ::grpc::internal::MethodHandler* const handler = ::grpc::Service::GetHandler(4);
+      ::grpc::internal::MethodHandler* const handler = ::grpc::Service::GetHandler(3);
       static_cast<::grpc::internal::CallbackUnaryHandler< ::kvstore::JoinRequest, ::kvstore::JoinResponse>*>(handler)
               ->SetMessageAllocator(allocator);
     }
@@ -476,13 +405,13 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithCallbackMethod_Leave() {
-      ::grpc::Service::MarkMethodCallback(5,
+      ::grpc::Service::MarkMethodCallback(4,
           new ::grpc::internal::CallbackUnaryHandler< ::kvstore::LeaveRequest, ::kvstore::LeaveResponse>(
             [this](
                    ::grpc::CallbackServerContext* context, const ::kvstore::LeaveRequest* request, ::kvstore::LeaveResponse* response) { return this->Leave(context, request, response); }));}
     void SetMessageAllocatorFor_Leave(
         ::grpc::MessageAllocator< ::kvstore::LeaveRequest, ::kvstore::LeaveResponse>* allocator) {
-      ::grpc::internal::MethodHandler* const handler = ::grpc::Service::GetHandler(5);
+      ::grpc::internal::MethodHandler* const handler = ::grpc::Service::GetHandler(4);
       static_cast<::grpc::internal::CallbackUnaryHandler< ::kvstore::LeaveRequest, ::kvstore::LeaveResponse>*>(handler)
               ->SetMessageAllocator(allocator);
     }
@@ -497,7 +426,7 @@ class KVStore final {
     virtual ::grpc::ServerUnaryReactor* Leave(
       ::grpc::CallbackServerContext* /*context*/, const ::kvstore::LeaveRequest* /*request*/, ::kvstore::LeaveResponse* /*response*/)  { return nullptr; }
   };
-  typedef WithCallbackMethod_Put<WithCallbackMethod_Get<WithCallbackMethod_Delete<WithCallbackMethod_Status<WithCallbackMethod_Join<WithCallbackMethod_Leave<Service > > > > > > CallbackService;
+  typedef WithCallbackMethod_Put<WithCallbackMethod_Get<WithCallbackMethod_Delete<WithCallbackMethod_Join<WithCallbackMethod_Leave<Service > > > > > CallbackService;
   typedef CallbackService ExperimentalCallbackService;
   template <class BaseClass>
   class WithGenericMethod_Put : public BaseClass {
@@ -551,29 +480,12 @@ class KVStore final {
     }
   };
   template <class BaseClass>
-  class WithGenericMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithGenericMethod_Status() {
-      ::grpc::Service::MarkMethodGeneric(3);
-    }
-    ~WithGenericMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable synchronous version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-  };
-  template <class BaseClass>
   class WithGenericMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithGenericMethod_Join() {
-      ::grpc::Service::MarkMethodGeneric(4);
+      ::grpc::Service::MarkMethodGeneric(3);
     }
     ~WithGenericMethod_Join() override {
       BaseClassMustBeDerivedFromService(this);
@@ -590,7 +502,7 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithGenericMethod_Leave() {
-      ::grpc::Service::MarkMethodGeneric(5);
+      ::grpc::Service::MarkMethodGeneric(4);
     }
     ~WithGenericMethod_Leave() override {
       BaseClassMustBeDerivedFromService(this);
@@ -662,32 +574,12 @@ class KVStore final {
     }
   };
   template <class BaseClass>
-  class WithRawMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithRawMethod_Status() {
-      ::grpc::Service::MarkMethodRaw(3);
-    }
-    ~WithRawMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable synchronous version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-    void RequestStatus(::grpc::ServerContext* context, ::grpc::ByteBuffer* request, ::grpc::ServerAsyncResponseWriter< ::grpc::ByteBuffer>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(3, context, request, response, new_call_cq, notification_cq, tag);
-    }
-  };
-  template <class BaseClass>
   class WithRawMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithRawMethod_Join() {
-      ::grpc::Service::MarkMethodRaw(4);
+      ::grpc::Service::MarkMethodRaw(3);
     }
     ~WithRawMethod_Join() override {
       BaseClassMustBeDerivedFromService(this);
@@ -698,7 +590,7 @@ class KVStore final {
       return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
     }
     void RequestJoin(::grpc::ServerContext* context, ::grpc::ByteBuffer* request, ::grpc::ServerAsyncResponseWriter< ::grpc::ByteBuffer>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(4, context, request, response, new_call_cq, notification_cq, tag);
+      ::grpc::Service::RequestAsyncUnary(3, context, request, response, new_call_cq, notification_cq, tag);
     }
   };
   template <class BaseClass>
@@ -707,7 +599,7 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithRawMethod_Leave() {
-      ::grpc::Service::MarkMethodRaw(5);
+      ::grpc::Service::MarkMethodRaw(4);
     }
     ~WithRawMethod_Leave() override {
       BaseClassMustBeDerivedFromService(this);
@@ -718,7 +610,7 @@ class KVStore final {
       return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
     }
     void RequestLeave(::grpc::ServerContext* context, ::grpc::ByteBuffer* request, ::grpc::ServerAsyncResponseWriter< ::grpc::ByteBuffer>* response, ::grpc::CompletionQueue* new_call_cq, ::grpc::ServerCompletionQueue* notification_cq, void *tag) {
-      ::grpc::Service::RequestAsyncUnary(5, context, request, response, new_call_cq, notification_cq, tag);
+      ::grpc::Service::RequestAsyncUnary(4, context, request, response, new_call_cq, notification_cq, tag);
     }
   };
   template <class BaseClass>
@@ -788,34 +680,12 @@ class KVStore final {
       ::grpc::CallbackServerContext* /*context*/, const ::grpc::ByteBuffer* /*request*/, ::grpc::ByteBuffer* /*response*/)  { return nullptr; }
   };
   template <class BaseClass>
-  class WithRawCallbackMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithRawCallbackMethod_Status() {
-      ::grpc::Service::MarkMethodRawCallback(3,
-          new ::grpc::internal::CallbackUnaryHandler< ::grpc::ByteBuffer, ::grpc::ByteBuffer>(
-            [this](
-                   ::grpc::CallbackServerContext* context, const ::grpc::ByteBuffer* request, ::grpc::ByteBuffer* response) { return this->Status(context, request, response); }));
-    }
-    ~WithRawCallbackMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable synchronous version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-    virtual ::grpc::ServerUnaryReactor* Status(
-      ::grpc::CallbackServerContext* /*context*/, const ::grpc::ByteBuffer* /*request*/, ::grpc::ByteBuffer* /*response*/)  { return nullptr; }
-  };
-  template <class BaseClass>
   class WithRawCallbackMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithRawCallbackMethod_Join() {
-      ::grpc::Service::MarkMethodRawCallback(4,
+      ::grpc::Service::MarkMethodRawCallback(3,
           new ::grpc::internal::CallbackUnaryHandler< ::grpc::ByteBuffer, ::grpc::ByteBuffer>(
             [this](
                    ::grpc::CallbackServerContext* context, const ::grpc::ByteBuffer* request, ::grpc::ByteBuffer* response) { return this->Join(context, request, response); }));
@@ -837,7 +707,7 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithRawCallbackMethod_Leave() {
-      ::grpc::Service::MarkMethodRawCallback(5,
+      ::grpc::Service::MarkMethodRawCallback(4,
           new ::grpc::internal::CallbackUnaryHandler< ::grpc::ByteBuffer, ::grpc::ByteBuffer>(
             [this](
                    ::grpc::CallbackServerContext* context, const ::grpc::ByteBuffer* request, ::grpc::ByteBuffer* response) { return this->Leave(context, request, response); }));
@@ -935,39 +805,12 @@ class KVStore final {
     virtual ::grpc::Status StreamedDelete(::grpc::ServerContext* context, ::grpc::ServerUnaryStreamer< ::kvstore::DeleteRequest,::kvstore::DeleteResponse>* server_unary_streamer) = 0;
   };
   template <class BaseClass>
-  class WithStreamedUnaryMethod_Status : public BaseClass {
-   private:
-    void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
-   public:
-    WithStreamedUnaryMethod_Status() {
-      ::grpc::Service::MarkMethodStreamed(3,
-        new ::grpc::internal::StreamedUnaryHandler<
-          ::kvstore::StatusRequest, ::kvstore::StatusResponse>(
-            [this](::grpc::ServerContext* context,
-                   ::grpc::ServerUnaryStreamer<
-                     ::kvstore::StatusRequest, ::kvstore::StatusResponse>* streamer) {
-                       return this->StreamedStatus(context,
-                         streamer);
-                  }));
-    }
-    ~WithStreamedUnaryMethod_Status() override {
-      BaseClassMustBeDerivedFromService(this);
-    }
-    // disable regular version of this method
-    ::grpc::Status Status(::grpc::ServerContext* /*context*/, const ::kvstore::StatusRequest* /*request*/, ::kvstore::StatusResponse* /*response*/) override {
-      abort();
-      return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, "");
-    }
-    // replace default version of method with streamed unary
-    virtual ::grpc::Status StreamedStatus(::grpc::ServerContext* context, ::grpc::ServerUnaryStreamer< ::kvstore::StatusRequest,::kvstore::StatusResponse>* server_unary_streamer) = 0;
-  };
-  template <class BaseClass>
   class WithStreamedUnaryMethod_Join : public BaseClass {
    private:
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithStreamedUnaryMethod_Join() {
-      ::grpc::Service::MarkMethodStreamed(4,
+      ::grpc::Service::MarkMethodStreamed(3,
         new ::grpc::internal::StreamedUnaryHandler<
           ::kvstore::JoinRequest, ::kvstore::JoinResponse>(
             [this](::grpc::ServerContext* context,
@@ -994,7 +837,7 @@ class KVStore final {
     void BaseClassMustBeDerivedFromService(const Service* /*service*/) {}
    public:
     WithStreamedUnaryMethod_Leave() {
-      ::grpc::Service::MarkMethodStreamed(5,
+      ::grpc::Service::MarkMethodStreamed(4,
         new ::grpc::internal::StreamedUnaryHandler<
           ::kvstore::LeaveRequest, ::kvstore::LeaveResponse>(
             [this](::grpc::ServerContext* context,
@@ -1015,9 +858,9 @@ class KVStore final {
     // replace default version of method with streamed unary
     virtual ::grpc::Status StreamedLeave(::grpc::ServerContext* context, ::grpc::ServerUnaryStreamer< ::kvstore::LeaveRequest,::kvstore::LeaveResponse>* server_unary_streamer) = 0;
   };
-  typedef WithStreamedUnaryMethod_Put<WithStreamedUnaryMethod_Get<WithStreamedUnaryMethod_Delete<WithStreamedUnaryMethod_Status<WithStreamedUnaryMethod_Join<WithStreamedUnaryMethod_Leave<Service > > > > > > StreamedUnaryService;
+  typedef WithStreamedUnaryMethod_Put<WithStreamedUnaryMethod_Get<WithStreamedUnaryMethod_Delete<WithStreamedUnaryMethod_Join<WithStreamedUnaryMethod_Leave<Service > > > > > StreamedUnaryService;
   typedef Service SplitStreamedService;
-  typedef WithStreamedUnaryMethod_Put<WithStreamedUnaryMethod_Get<WithStreamedUnaryMethod_Delete<WithStreamedUnaryMethod_Status<WithStreamedUnaryMethod_Join<WithStreamedUnaryMethod_Leave<Service > > > > > > StreamedService;
+  typedef WithStreamedUnaryMethod_Put<WithStreamedUnaryMethod_Get<WithStreamedUnaryMethod_Delete<WithStreamedUnaryMethod_Join<WithStreamedUnaryMethod_Leave<Service > > > > > StreamedService;
 };
 
 }  // namespace kvstore
