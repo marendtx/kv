@@ -63,6 +63,10 @@ bool send_join_req(const std::string &target_host, int target_port, int node_id,
     }
 }
 
+// Usage:
+// ./build/myapp 1 0.0.0.0 50051 localhost 12345
+// ./build/myapp 2 0.0.0.0 50052 localhost 12346 --join localhost 50051
+
 int main(int argc, char **argv) {
     auto args = parse_args(argc, argv);
 

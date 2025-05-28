@@ -353,43 +353,45 @@ namespace nuraft {
         ~inmem_state_mgr() {}
 
         ptr<cluster_config> load_config() {
-            // Just return in-memory data in this example.
-            // May require reading from disk here, if it has been written to disk.
+            std::cout << "state_mgr: load_config" << std::endl;
             return saved_config_;
         }
 
         void save_config(const cluster_config &config) {
-            // Just keep in memory in this example.
-            // Need to write to disk here, if want to make it durable.
+            std::cout << "state_mgr: save_config" << std::endl;
             ptr<buffer> buf = config.serialize();
             saved_config_ = cluster_config::deserialize(*buf);
         }
 
         void save_state(const srv_state &state) {
-            // Just keep in memory in this example.
-            // Need to write to disk here, if want to make it durable.
+            std::cout << "state_mgr: save_state" << std::endl;
             ptr<buffer> buf = state.serialize();
             saved_state_ = srv_state::deserialize(*buf);
         }
 
         ptr<srv_state> read_state() {
-            // Just return in-memory data in this example.
-            // May require reading from disk here, if it has been written to disk.
+            std::cout << "state_mgr: read_state" << std::endl;
             return saved_state_;
         }
 
         ptr<log_store> load_log_store() {
+            std::cout << "state_mgr: load_log_store" << std::endl;
             return cur_log_store_;
         }
 
         int32 server_id() {
+            std::cout << "state_mgr: server_id" << std::endl;
             return my_id_;
         }
 
         void system_exit(const int exit_code) {
+            std::cout << "state_mgr: system_exit" << std::endl;
         }
 
-        ptr<srv_config> get_srv_config() const { return my_srv_config_; }
+        ptr<srv_config> get_srv_config() const {
+            std::cout << "state_mgr: get_src_config" << std::endl;
+            return my_srv_config_;
+        }
 
     private:
         int my_id_;
@@ -421,6 +423,8 @@ public:
     BPTreeStateMachine(BPlusTree &tree) : tree_(tree), last_commit_idx_(0) {}
 
     ptr<buffer> commit(const ulong log_idx, buffer &data) override {
+        std::cout << "state_machine: commit" << std::endl;
+
         buffer_serializer bs(data);
         // ここではPut/Delete両対応（op: 0=put, 1=del）
         int op = bs.get_u8();
@@ -438,11 +442,87 @@ public:
         last_commit_idx_ = log_idx;
         return nullptr;
     }
-    // 必須API最低限
-    bool apply_snapshot(snapshot &) override { return true; }
-    ptr<snapshot> last_snapshot() override { return nullptr; }
-    ulong last_commit_index() override { return last_commit_idx_; }
-    void create_snapshot(snapshot &, async_result<bool>::handler_type &) override {}
+
+    ptr<buffer> commit_ext(const ext_op_params &params) {
+        std::cout << "state_machine: commit_ext" << std::endl;
+        return commit(params.log_idx, *params.data);
+    }
+    void commit_config(const ulong log_idx, ptr<cluster_config> &new_conf) {
+        std::cout << "state_machine: commit_config" << std::endl;
+    }
+    ptr<buffer> pre_commit(const ulong log_idx, buffer &data) {
+        std::cout << "state_machine: pre_commit" << std::endl;
+        return nullptr;
+    }
+    ptr<buffer> pre_commit_ext(const ext_op_params &params) {
+        std::cout << "state_machine: pre_commit_ext" << std::endl;
+        return pre_commit(params.log_idx, *params.data);
+    }
+    void rollback(const ulong log_idx, buffer &data) {
+        std::cout << "state_machine: rollback" << std::endl;
+    }
+    void rollback_config(const ulong log_idx, ptr<cluster_config> &conf) {
+        std::cout << "state_machine: rollback_config" << std::endl;
+    }
+    void rollback_ext(const ext_op_params &params) {
+        std::cout << "state_machine: rollback_ext" << std::endl;
+        rollback(params.log_idx, *params.data);
+    }
+    int64 get_next_batch_size_hint_in_bytes() {
+        std::cout << "state_machine: get_next_batch_size_hint_in_bytes" << std::endl;
+        return 0;
+    }
+    void save_snapshot_data(snapshot &s, const ulong offset, buffer &data) {
+        std::cout << "state_machine: save_snapshot_data" << std::endl;
+    }
+    void save_logical_snp_obj(snapshot &s, ulong &obj_id, buffer &data, bool is_first_obj, bool is_last_obj) {
+        std::cout << "state_machine: save_logical_snp_obj" << std::endl;
+    }
+
+    bool apply_snapshot(snapshot &) override {
+        std::cout << "state_machine: apply_snapshot" << std::endl;
+        return true;
+    }
+    int read_snapshot_data(snapshot &s, const ulong offset, buffer &data) {
+        std::cout << "state_machine: read_snapshot_data" << std::endl;
+        return 0;
+    }
+    int read_logical_snp_obj(snapshot &s, void *&user_snp_ctx, ulong obj_id, ptr<buffer> &data_out, bool &is_last_obj) {
+        std::cout << "state_machine: read_logical_snp_obj" << std::endl;
+        data_out = buffer::alloc(4); // A dummy buffer.
+        is_last_obj = true;
+        return 0;
+    }
+    void free_user_snp_ctx(void *&user_snp_ctx) {
+        std::cout << "state_machine: free_user_snp_ctx" << std::endl;
+    }
+
+    ptr<snapshot> last_snapshot() override {
+        std::cout << "state_machine: last_snapshot" << std::endl;
+        return nullptr;
+    }
+    ulong last_commit_index() override {
+        std::cout << "state_machine: last_commit_index" << std::endl;
+        return last_commit_idx_;
+    }
+    void create_snapshot(snapshot &, async_result<bool>::handler_type &) override {
+        std::cout << "state_machine: create_snapshot" << std::endl;
+    }
+
+    bool chk_create_snapshot() {
+        std::cout << "state_machine: chk_create_snapshot" << std::endl;
+        return true;
+    }
+
+    bool allow_leadership_transfer() {
+        std::cout << "state_machine: allow_leadership_transfer" << std::endl;
+        return true;
+    }
+
+    uint64_t adjust_commit_index(const adjust_commit_index_params &params) {
+        std::cout << "state_machine: adjust_commit_index" << std::endl;
+        return params.expected_commit_index_;
+    }
 
 private:
     BPlusTree &tree_;
@@ -528,6 +608,8 @@ public:
 
     // --- Join（ノード追加: リーダーが処理） ---
     grpc::Status Join(grpc::ServerContext *context, const kvstore::JoinRequest *request, kvstore::JoinResponse *response) override {
+        std::cout << "server joined: " << request->node_id() << std::endl;
+
         auto raft = get_kv_singleton().raft;
         if (!raft || !raft->is_leader()) {
             response->set_success(false);
