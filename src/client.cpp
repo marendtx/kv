@@ -40,6 +40,10 @@ std::vector<std::string> split(const std::string &s) {
 // [Join] OK
 // > leave 2
 // [Leave] OK
+// > status
+// ... (Raftクラスタ状態表示)
+// > members
+// ... (クラスタ全メンバー一覧表示)
 // > quit
 
 int main(int argc, char **argv) {
@@ -49,7 +53,7 @@ int main(int argc, char **argv) {
     auto stub = kvstore::KVStore::NewStub(channel);
 
     std::cout << "接続先: " << address << std::endl;
-    std::cout << "コマンド: put/get/del/join/leave/quit" << std::endl;
+    std::cout << "コマンド: put/get/del/join/leave/status/members/quit" << std::endl;
 
     std::string line;
     while (std::cout << "> ", std::getline(std::cin, line)) {
@@ -98,10 +102,39 @@ int main(int argc, char **argv) {
             grpc::ClientContext ctx;
             auto status = stub->Leave(&ctx, req, &res);
             std::cout << (status.ok() && res.success() ? "[Leave] OK" : "[Leave] Failed: " + res.error()) << std::endl;
+        } else if (cmd == "status") {
+            kvstore::StatusRequest req;
+            kvstore::StatusResponse res;
+            grpc::ClientContext ctx;
+            auto status = stub->Status(&ctx, req, &res);
+            if (status.ok()) {
+                std::cout << "[Status]\n"
+                          << "  node_id: " << res.node_id() << "\n"
+                          << "  leader_id: " << res.leader_id() << "\n"
+                          << "  commit_index: " << res.commit_index() << "\n"
+                          << "  raft_state: " << res.raft_state() << "\n";
+            } else {
+                std::cout << "[Status] 取得失敗" << std::endl;
+            }
+        } else if (cmd == "members") {
+            kvstore::ListMembersRequest req;
+            kvstore::ListMembersResponse res;
+            grpc::ClientContext ctx;
+            auto status = stub->ListMembers(&ctx, req, &res);
+            if (status.ok()) {
+                std::cout << "[Members]" << std::endl;
+                for (const auto &m : res.members()) {
+                    std::cout << "  id: " << m.id()
+                              << "  endpoint: " << m.endpoint()
+                              << (m.is_leader() ? " (LEADER)" : "") << std::endl;
+                }
+            } else {
+                std::cout << "[Members] 取得失敗" << std::endl;
+            }
         } else if (cmd == "quit" || cmd == "exit") {
             break;
         } else if (cmd == "help") {
-            std::cout << "put <key> <val>\nget <key>\ndel <key>\njoin <node_id> <raft_endpoint>\nleave <node_id>\nquit" << std::endl;
+            std::cout << "put <key> <val>\nget <key>\ndel <key>\njoin <node_id> <raft_endpoint>\nleave <node_id>\nstatus\nmembers\nquit" << std::endl;
         } else {
             std::cout << "コマンドが不正です（helpで一覧表示）" << std::endl;
         }

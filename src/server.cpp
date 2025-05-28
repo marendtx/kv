@@ -694,6 +694,41 @@ public:
         response->set_error("");
         return grpc::Status::OK;
     }
+
+    // クラスタ状態取得
+    grpc::Status Status(grpc::ServerContext *context, const kvstore::StatusRequest *request, kvstore::StatusResponse *response) override {
+        auto &kv = get_kv_singleton();
+        auto raft = kv.raft;
+        response->set_node_id(raft->get_id());
+        response->set_leader_id(raft->get_leader());
+        response->set_commit_index(raft->get_committed_log_idx());
+
+        // Raft状態をテキストで
+        std::string raft_state = "maybe follower";
+        if (raft->is_leader())
+            raft_state = "leader";
+        response->set_raft_state(raft_state);
+
+        return grpc::Status::OK;
+    }
+
+    // クラスタメンバー一覧
+    grpc::Status ListMembers(grpc::ServerContext *context, const kvstore::ListMembersRequest *request, kvstore::ListMembersResponse *response) override {
+        auto &kv = get_kv_singleton();
+        auto raft = kv.raft;
+
+        std::vector<ptr<nuraft::srv_config>> configs;
+        raft->get_srv_config_all(configs);
+        int leader_id = raft->get_leader();
+
+        for (const auto &cfg : configs) {
+            auto *member = response->add_members();
+            member->set_id(cfg->get_id());
+            member->set_endpoint(cfg->get_endpoint());
+            member->set_is_leader(cfg->get_id() == leader_id);
+        }
+        return grpc::Status::OK;
+    }
 };
 
 // ------------- サーバ起動 ------------- //
