@@ -396,14 +396,6 @@ namespace nuraft {
     };
 }
 
-ByteArray toBytes(const std::string &s) {
-    return ByteArray(reinterpret_cast<const std::byte *>(s.data()), reinterpret_cast<const std::byte *>(s.data() + s.size()));
-}
-
-std::string fromBytes(const ByteArray &b) {
-    return std::string(reinterpret_cast<const char *>(b.data()), b.size());
-}
-
 class BPTreeStateMachine : public nuraft::state_machine {
 public:
     BPTreeStateMachine(BPlusTree &tree) : tree_(tree), last_commit_idx_(0) {}
@@ -432,6 +424,8 @@ private:
     BPlusTree &tree_;
     ulong last_commit_idx_;
 };
+
+void RunServer(const std::string &address);
 
 int main() {
     BPlusTree tree;
@@ -543,5 +537,15 @@ int main() {
 
     // -- 7. シャットダウン --
     launcher.shutdown();
+
+    std::cout << std::endl
+              << "///////////////////////alright!! Raft seems to be fine!! Then, let's check out gRPC!!/////////////////"
+              << std::endl
+              << std::endl;
+
+    ///////////////////////////////////////////////////////
+
+    RunServer("0.0.0.0:12345");
+
     return 0;
 }

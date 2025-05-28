@@ -4,14 +4,6 @@
 #include <gtest/gtest.h>
 #include <random>
 
-ByteArray toBytes(const std::string &s) {
-    return ByteArray(reinterpret_cast<const std::byte *>(s.data()), reinterpret_cast<const std::byte *>(s.data() + s.size()));
-}
-
-std::string fromBytes(const ByteArray &b) {
-    return std::string(reinterpret_cast<const char *>(b.data()), b.size());
-}
-
 const std::string testDir = "test_tree_data";
 
 class BPlusTreeTest : public ::testing::Test {

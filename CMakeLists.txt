@@ -21,35 +21,50 @@ include_directories($ENV{HOME}/.local/include)
 include_directories($ENV{HOME}/.local/include/libnuraft)
 link_directories($ENV{HOME}/.local/lib)
 
-# --- gRPCサーバー ---
-add_executable(grpc_server
-    src/server.cpp
-    api/hello.pb.cc
-    api/hello.grpc.pb.cc
+# # --- gRPCサーバー ---
+# add_executable(grpc_server
+#     src/server.cpp
+#     api/hello.pb.cc
+#     api/hello.grpc.pb.cc
+# )
+# target_include_directories(grpc_server PRIVATE include api)
+# target_link_libraries(grpc_server
+#     gRPC::grpc++
+#     protobuf::libprotobuf
+# )
+
+# --- gRPCクライアント ---
+add_executable(client
+    src/client.cpp
+    api/kvstore.pb.cc
+    api/kvstore.grpc.pb.cc
 )
-target_include_directories(grpc_server PRIVATE include api)
-target_link_libraries(grpc_server
+target_include_directories(client PRIVATE include api)
+target_link_libraries(client
     gRPC::grpc++
     protobuf::libprotobuf
 )
 
-# --- gRPCクライアント ---
-add_executable(grpc_client
-    src/client.cpp
-    api/hello.pb.cc
-    api/hello.grpc.pb.cc
-)
-target_include_directories(grpc_client PRIVATE include api)
-target_link_libraries(grpc_client
-    gRPC::grpc++
-    protobuf::libprotobuf
-)
+# add_executable(server
+#     src/server.cpp
+#     api/kvstore.pb.cc
+#     api/kvstore.grpc.pb.cc
+# )
+# target_include_directories(server PRIVATE include api)
+# target_link_libraries(server
+#     gRPC::grpc++
+#     protobuf::libprotobuf
+# )
 
 # --- 通常アプリ ---
 add_executable(myapp
     src/main.cpp
+    src/server.cpp
+    src/b_plus_tree.cpp
+    api/kvstore.pb.cc
+    api/kvstore.grpc.pb.cc
 )
-target_include_directories(myapp PRIVATE include)
+target_include_directories(myapp PRIVATE include api)
 target_link_libraries(myapp
     gRPC::grpc++
     protobuf::libprotobuf
@@ -62,6 +77,7 @@ add_executable(runTests
     test/test_main.cpp
     test/test_bplustree.cpp
     src/mylib.cpp
+    src/b_plus_tree.cpp
 )
 target_include_directories(runTests PRIVATE include)
 target_link_libraries(runTests GTest::GTest GTest::Main pthread)
