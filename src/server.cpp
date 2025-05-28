@@ -9,42 +9,483 @@
 #include <string>
 #include <thread>
 
-// Raft系も必要ならinclude
+// NuRaft
 #include "libnuraft/buffer_serializer.hxx"
 #include "libnuraft/in_memory_log_store.hxx"
 #include "libnuraft/nuraft.hxx"
 
-// -- B+treeとRaftをまとめたシングルトン --
+namespace nuraft {
+
+    inmem_log_store::inmem_log_store()
+        : start_idx_(1), raft_server_bwd_pointer_(nullptr), disk_emul_delay(0), disk_emul_thread_(nullptr), disk_emul_thread_stop_signal_(false), disk_emul_last_durable_index_(0) {
+        // Dummy entry for index 0.
+        ptr<buffer> buf = buffer::alloc(sz_ulong);
+        logs_[0] = cs_new<log_entry>(0, buf);
+    }
+
+    inmem_log_store::~inmem_log_store() {
+        if (disk_emul_thread_) {
+            disk_emul_thread_stop_signal_ = true;
+            disk_emul_ea_.invoke();
+            if (disk_emul_thread_->joinable()) {
+                disk_emul_thread_->join();
+            }
+        }
+    }
+
+    ptr<log_entry> inmem_log_store::make_clone(const ptr<log_entry> &entry) {
+        // NOTE:
+        //   Timestamp is used only when `replicate_log_timestamp_` option is on.
+        //   Otherwise, log store does not need to store or load it.
+        ptr<log_entry> clone = cs_new<log_entry>(entry->get_term(),
+                                                 buffer::clone(entry->get_buf()),
+                                                 entry->get_val_type(),
+                                                 entry->get_timestamp(),
+                                                 entry->has_crc32(),
+                                                 entry->get_crc32(),
+                                                 false);
+        return clone;
+    }
+
+    ulong inmem_log_store::next_slot() const {
+        std::lock_guard<std::mutex> l(logs_lock_);
+        // Exclude the dummy entry.
+        return start_idx_ + logs_.size() - 1;
+    }
+
+    ulong inmem_log_store::start_index() const {
+        return start_idx_;
+    }
+
+    ptr<log_entry> inmem_log_store::last_entry() const {
+        ulong next_idx = next_slot();
+        std::lock_guard<std::mutex> l(logs_lock_);
+        auto entry = logs_.find(next_idx - 1);
+        if (entry == logs_.end()) {
+            entry = logs_.find(0);
+        }
+
+        return make_clone(entry->second);
+    }
+
+    ulong inmem_log_store::append(ptr<log_entry> &entry) {
+        ptr<log_entry> clone = make_clone(entry);
+
+        std::lock_guard<std::mutex> l(logs_lock_);
+        size_t idx = start_idx_ + logs_.size() - 1;
+        logs_[idx] = clone;
+
+        if (disk_emul_delay) {
+            uint64_t cur_time = timer_helper::get_timeofday_us();
+            disk_emul_logs_being_written_[cur_time + disk_emul_delay * 1000] = idx;
+            disk_emul_ea_.invoke();
+        }
+
+        return idx;
+    }
+
+    void inmem_log_store::write_at(ulong index, ptr<log_entry> &entry) {
+        ptr<log_entry> clone = make_clone(entry);
+
+        // Discard all logs equal to or greater than `index.
+        std::lock_guard<std::mutex> l(logs_lock_);
+        auto itr = logs_.lower_bound(index);
+        while (itr != logs_.end()) {
+            itr = logs_.erase(itr);
+        }
+        logs_[index] = clone;
+
+        if (disk_emul_delay) {
+            uint64_t cur_time = timer_helper::get_timeofday_us();
+            disk_emul_logs_being_written_[cur_time + disk_emul_delay * 1000] = index;
+
+            // Remove entries greater than `index`.
+            auto entry = disk_emul_logs_being_written_.begin();
+            while (entry != disk_emul_logs_being_written_.end()) {
+                if (entry->second > index) {
+                    entry = disk_emul_logs_being_written_.erase(entry);
+                } else {
+                    entry++;
+                }
+            }
+            disk_emul_ea_.invoke();
+        }
+    }
+
+    ptr<std::vector<ptr<log_entry>>>
+    inmem_log_store::log_entries(ulong start, ulong end) {
+        ptr<std::vector<ptr<log_entry>>> ret =
+            cs_new<std::vector<ptr<log_entry>>>();
+
+        ret->resize(end - start);
+        ulong cc = 0;
+        for (ulong ii = start; ii < end; ++ii) {
+            ptr<log_entry> src = nullptr;
+            {
+                std::lock_guard<std::mutex> l(logs_lock_);
+                auto entry = logs_.find(ii);
+                if (entry == logs_.end()) {
+                    entry = logs_.find(0);
+                    assert(0);
+                }
+                src = entry->second;
+            }
+            (*ret)[cc++] = make_clone(src);
+        }
+        return ret;
+    }
+
+    ptr<std::vector<ptr<log_entry>>>
+    inmem_log_store::log_entries_ext(ulong start,
+                                     ulong end,
+                                     int64 batch_size_hint_in_bytes) {
+        ptr<std::vector<ptr<log_entry>>> ret =
+            cs_new<std::vector<ptr<log_entry>>>();
+
+        if (batch_size_hint_in_bytes < 0) {
+            return ret;
+        }
+
+        size_t accum_size = 0;
+        for (ulong ii = start; ii < end; ++ii) {
+            ptr<log_entry> src = nullptr;
+            {
+                std::lock_guard<std::mutex> l(logs_lock_);
+                auto entry = logs_.find(ii);
+                if (entry == logs_.end()) {
+                    entry = logs_.find(0);
+                    assert(0);
+                }
+                src = entry->second;
+            }
+            ret->push_back(make_clone(src));
+            accum_size += src->get_buf().size();
+            if (batch_size_hint_in_bytes &&
+                accum_size >= (ulong)batch_size_hint_in_bytes)
+                break;
+        }
+        return ret;
+    }
+
+    ptr<log_entry> inmem_log_store::entry_at(ulong index) {
+        ptr<log_entry> src = nullptr;
+        {
+            std::lock_guard<std::mutex> l(logs_lock_);
+            auto entry = logs_.find(index);
+            if (entry == logs_.end()) {
+                entry = logs_.find(0);
+            }
+            src = entry->second;
+        }
+        return make_clone(src);
+    }
+
+    ulong inmem_log_store::term_at(ulong index) {
+        ulong term = 0;
+        {
+            std::lock_guard<std::mutex> l(logs_lock_);
+            auto entry = logs_.find(index);
+            if (entry == logs_.end()) {
+                entry = logs_.find(0);
+            }
+            term = entry->second->get_term();
+        }
+        return term;
+    }
+
+    ptr<buffer> inmem_log_store::pack(ulong index, int32 cnt) {
+        std::vector<ptr<buffer>> logs;
+
+        size_t size_total = 0;
+        for (ulong ii = index; ii < index + cnt; ++ii) {
+            ptr<log_entry> le = nullptr;
+            {
+                std::lock_guard<std::mutex> l(logs_lock_);
+                le = logs_[ii];
+            }
+            assert(le.get());
+            ptr<buffer> buf = le->serialize();
+            size_total += buf->size();
+            logs.push_back(buf);
+        }
+
+        ptr<buffer> buf_out = buffer::alloc(sizeof(int32) +
+                                            cnt * sizeof(int32) +
+                                            size_total);
+        buf_out->pos(0);
+        buf_out->put((int32)cnt);
+
+        for (auto &entry : logs) {
+            ptr<buffer> &bb = entry;
+            buf_out->put((int32)bb->size());
+            buf_out->put(*bb);
+        }
+        return buf_out;
+    }
+
+    void inmem_log_store::apply_pack(ulong index, buffer &pack) {
+        pack.pos(0);
+        int32 num_logs = pack.get_int();
+
+        for (int32 ii = 0; ii < num_logs; ++ii) {
+            ulong cur_idx = index + ii;
+            int32 buf_size = pack.get_int();
+
+            ptr<buffer> buf_local = buffer::alloc(buf_size);
+            pack.get(buf_local);
+
+            ptr<log_entry> le = log_entry::deserialize(*buf_local);
+            {
+                std::lock_guard<std::mutex> l(logs_lock_);
+                logs_[cur_idx] = le;
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> l(logs_lock_);
+            auto entry = logs_.upper_bound(0);
+            if (entry != logs_.end()) {
+                start_idx_ = entry->first;
+            } else {
+                start_idx_ = 1;
+            }
+        }
+    }
+
+    bool inmem_log_store::compact(ulong last_log_index) {
+        std::lock_guard<std::mutex> l(logs_lock_);
+        for (ulong ii = start_idx_; ii <= last_log_index; ++ii) {
+            auto entry = logs_.find(ii);
+            if (entry != logs_.end()) {
+                logs_.erase(entry);
+            }
+        }
+
+        // WARNING:
+        //   Even though nothing has been erased,
+        //   we should set `start_idx_` to new index.
+        if (start_idx_ <= last_log_index) {
+            start_idx_ = last_log_index + 1;
+        }
+        return true;
+    }
+
+    bool inmem_log_store::flush() {
+        disk_emul_last_durable_index_ = next_slot() - 1;
+        return true;
+    }
+
+    void inmem_log_store::close() {}
+
+    void inmem_log_store::set_disk_delay(raft_server *raft, size_t delay_ms) {
+        disk_emul_delay = delay_ms;
+        raft_server_bwd_pointer_ = raft;
+
+        if (!disk_emul_thread_) {
+            disk_emul_thread_ =
+                std::unique_ptr<std::thread>(
+                    new std::thread(&inmem_log_store::disk_emul_loop, this));
+        }
+    }
+
+    ulong inmem_log_store::last_durable_index() {
+        uint64_t last_log = next_slot() - 1;
+        if (!disk_emul_delay) {
+            return last_log;
+        }
+
+        return disk_emul_last_durable_index_;
+    }
+
+    void inmem_log_store::disk_emul_loop() {
+        // This thread mimics async disk writes.
+
+        size_t next_sleep_us = 100 * 1000;
+        while (!disk_emul_thread_stop_signal_) {
+            disk_emul_ea_.wait_us(next_sleep_us);
+            disk_emul_ea_.reset();
+            if (disk_emul_thread_stop_signal_)
+                break;
+
+            uint64_t cur_time = timer_helper::get_timeofday_us();
+            next_sleep_us = 100 * 1000;
+
+            bool call_notification = false;
+            {
+                std::lock_guard<std::mutex> l(logs_lock_);
+                // Remove all timestamps equal to or smaller than `cur_time`,
+                // and pick the greatest one among them.
+                auto entry = disk_emul_logs_being_written_.begin();
+                while (entry != disk_emul_logs_being_written_.end()) {
+                    if (entry->first <= cur_time) {
+                        disk_emul_last_durable_index_ = entry->second;
+                        entry = disk_emul_logs_being_written_.erase(entry);
+                        call_notification = true;
+                    } else {
+                        break;
+                    }
+                }
+
+                entry = disk_emul_logs_being_written_.begin();
+                if (entry != disk_emul_logs_being_written_.end()) {
+                    next_sleep_us = entry->first - cur_time;
+                }
+            }
+
+            if (call_notification) {
+                raft_server_bwd_pointer_->notify_log_append_completion(true);
+            }
+        }
+    }
+
+    class inmem_state_mgr : public state_mgr {
+    public:
+        inmem_state_mgr(int srv_id,
+                        const std::string &endpoint)
+            : my_id_(srv_id), my_endpoint_(endpoint), cur_log_store_(cs_new<inmem_log_store>()) {
+            my_srv_config_ = cs_new<srv_config>(srv_id, endpoint);
+
+            // Initial cluster config: contains only one server (myself).
+            saved_config_ = cs_new<cluster_config>();
+            saved_config_->get_servers().push_back(my_srv_config_);
+        }
+
+        ~inmem_state_mgr() {}
+
+        ptr<cluster_config> load_config() {
+            // Just return in-memory data in this example.
+            // May require reading from disk here, if it has been written to disk.
+            return saved_config_;
+        }
+
+        void save_config(const cluster_config &config) {
+            // Just keep in memory in this example.
+            // Need to write to disk here, if want to make it durable.
+            ptr<buffer> buf = config.serialize();
+            saved_config_ = cluster_config::deserialize(*buf);
+        }
+
+        void save_state(const srv_state &state) {
+            // Just keep in memory in this example.
+            // Need to write to disk here, if want to make it durable.
+            ptr<buffer> buf = state.serialize();
+            saved_state_ = srv_state::deserialize(*buf);
+        }
+
+        ptr<srv_state> read_state() {
+            // Just return in-memory data in this example.
+            // May require reading from disk here, if it has been written to disk.
+            return saved_state_;
+        }
+
+        ptr<log_store> load_log_store() {
+            return cur_log_store_;
+        }
+
+        int32 server_id() {
+            return my_id_;
+        }
+
+        void system_exit(const int exit_code) {
+        }
+
+        ptr<srv_config> get_srv_config() const { return my_srv_config_; }
+
+    private:
+        int my_id_;
+        std::string my_endpoint_;
+        ptr<inmem_log_store> cur_log_store_;
+        ptr<srv_config> my_srv_config_;
+        ptr<cluster_config> saved_config_;
+        ptr<srv_state> saved_state_;
+    };
+}
+
+using namespace nuraft;
+
+// ------------- シングルトン ------------- //
 struct KVSingletons {
     BPlusTree bptree;
-    // Raft関連（今は省略、あとで組み込む）
-    // std::shared_ptr<nuraft::raft_server> raft;
-    // ...
-    std::mutex mutex; // 排他制御
+    ptr<raft_server> raft;
+    ptr<state_machine> raft_state_machine;
+    std::mutex mutex;
 };
 KVSingletons &get_kv_singleton() {
     static KVSingletons s;
     return s;
 }
 
-// ---- KVStoreサービス実装 ----
+// ------------- StateMachine ------------- //
+class BPTreeStateMachine : public state_machine {
+public:
+    BPTreeStateMachine(BPlusTree &tree) : tree_(tree), last_commit_idx_(0) {}
+
+    ptr<buffer> commit(const ulong log_idx, buffer &data) override {
+        buffer_serializer bs(data);
+        // ここではPut/Delete両対応（op: 0=put, 1=del）
+        int op = bs.get_u8();
+        std::string key = bs.get_str();
+
+        if (op == 0) { // Put
+            std::string value = bs.get_str();
+            tree_.insert(toBytes(key), toBytes(value));
+            std::cout << "[commit/put] " << key << " → " << value << std::endl;
+        } else if (op == 1) { // Delete
+            tree_.remove(toBytes(key));
+            std::cout << "[commit/del] " << key << std::endl;
+        }
+
+        last_commit_idx_ = log_idx;
+        return nullptr;
+    }
+    // 必須API最低限
+    bool apply_snapshot(snapshot &) override { return true; }
+    ptr<snapshot> last_snapshot() override { return nullptr; }
+    ulong last_commit_index() override { return last_commit_idx_; }
+    void create_snapshot(snapshot &, async_result<bool>::handler_type &) override {}
+
+private:
+    BPlusTree &tree_;
+    ulong last_commit_idx_;
+};
+
+// ------------- KVStoreサービス実装 ------------- //
 class KVStoreServiceImpl final : public kvstore::KVStore::Service {
 public:
-    // Put
+    // Put（Raft経由）
     grpc::Status Put(grpc::ServerContext *context, const kvstore::PutRequest *request, kvstore::PutResponse *response) override {
         std::lock_guard<std::mutex> lock(get_kv_singleton().mutex);
 
-        // 今はRaftを経由せず直接B+tree
-        get_kv_singleton().bptree.insert(toBytes(request->key()), toBytes(request->value()));
-        response->set_success(true);
-        response->set_error("");
+        // 1byte: op(0=put), string: key, string: value
+        std::string key = request->key();
+        std::string value = request->value();
+        auto log = buffer::alloc(1 + sizeof(int) * 2 + key.size() + value.size());
+        buffer_serializer bs(log);
+        bs.put_u8(0); // 0=put
+        bs.put_str(key);
+        bs.put_str(value);
+
+        auto raft = get_kv_singleton().raft;
+        if (!raft->is_leader()) {
+            response->set_success(false);
+            response->set_error("not leader");
+            return grpc::Status::OK;
+        }
+        auto result = raft->append_entries({log});
+        try {
+            result->get(); // commit待ち
+            response->set_success(true);
+            response->set_error("");
+        } catch (std::exception &e) {
+            response->set_success(false);
+            response->set_error(e.what());
+        }
         return grpc::Status::OK;
     }
 
-    // Get
+    // Get（B+tree直読み、分散Read時は工夫が必要）
     grpc::Status Get(grpc::ServerContext *context, const kvstore::GetRequest *request, kvstore::GetResponse *response) override {
         std::lock_guard<std::mutex> lock(get_kv_singleton().mutex);
-
         ByteArray val = get_kv_singleton().bptree.search(toBytes(request->key()));
         if (!val.empty()) {
             response->set_found(true);
@@ -57,32 +498,67 @@ public:
         return grpc::Status::OK;
     }
 
-    // Delete
+    // Delete（Raft経由）
     grpc::Status Delete(grpc::ServerContext *context, const kvstore::DeleteRequest *request, kvstore::DeleteResponse *response) override {
         std::lock_guard<std::mutex> lock(get_kv_singleton().mutex);
 
-        ByteArray val = get_kv_singleton().bptree.search(toBytes(request->key()));
-        if (!val.empty()) {
-            get_kv_singleton().bptree.remove(toBytes(request->key()));
+        std::string key = request->key();
+        auto log = buffer::alloc(1 + sizeof(int) + key.size());
+        buffer_serializer bs(log);
+        bs.put_u8(1); // 1=delete
+        bs.put_str(key);
+
+        auto raft = get_kv_singleton().raft;
+        if (!raft->is_leader()) {
+            response->set_success(false);
+            response->set_error("not leader");
+            return grpc::Status::OK;
+        }
+        auto result = raft->append_entries({log});
+        try {
+            result->get();
             response->set_success(true);
             response->set_error("");
-        } else {
+        } catch (std::exception &e) {
             response->set_success(false);
-            response->set_error("not found");
+            response->set_error(e.what());
         }
         return grpc::Status::OK;
     }
-
-    // 他のAPIは今は未実装
 };
 
-// サーバ起動
-void RunServer(const std::string &address) {
+// ------------- サーバ起動 ------------- //
+void RunServer(int node_id, const std::string &grpc_host, const int grpc_port, const std::string &raft_host, int raft_port) {
+    auto raft_endpoint = raft_host + ":" + std::to_string(raft_port);
+    auto grpc_endpoint = grpc_host + ":" + std::to_string(grpc_port);
+    // Raftセットアップ（1ノード用。複数ノード時はクラスタ設定要調整）
+    auto &kv = get_kv_singleton();
+    kv.raft_state_machine = cs_new<BPTreeStateMachine>(kv.bptree);
+    auto state_mgr = cs_new<inmem_state_mgr>(node_id, raft_endpoint);
+    raft_launcher launcher;
+    asio_service::options asio_opt;
+    raft_params params;
+    ptr<logger> my_logger = nullptr;
+
+    kv.raft = launcher.init(kv.raft_state_machine, state_mgr, my_logger, raft_port, asio_opt, params);
+    if (!kv.raft) {
+        std::cerr << "Raft init failed! launcher.init() returned nullptr." << std::endl;
+        std::exit(1);
+    }
+    while (!kv.raft->is_initialized()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::cout << "Raft initialized. NodeID=" << node_id << ", endpoint=" << raft_endpoint << std::endl;
+
+    // gRPCサーバ起動
     KVStoreServiceImpl service;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(address, grpc::InsecureServerCredentials());
+    builder.AddListeningPort(grpc_endpoint, grpc::InsecureServerCredentials());
     builder.RegisterService(&service);
     std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-    std::cout << "gRPCサーバ起動: " << address << std::endl;
+    std::cout << "gRPCサーバ起動: " << grpc_endpoint << std::endl;
     server->Wait();
+
+    // サーバ停止時はRaftをシャットダウン
+    launcher.shutdown();
 }

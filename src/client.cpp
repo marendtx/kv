@@ -4,7 +4,7 @@
 #include <string>
 
 int main(int argc, char **argv) {
-    std::string address = "localhost:12345";
+    std::string address = "localhost:50051"; // リーダーのgRPC宛てにする必要がある。
     auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
     auto stub = kvstore::KVStore::NewStub(channel);
 
