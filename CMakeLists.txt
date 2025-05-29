@@ -15,27 +15,33 @@ include_directories($ENV{HOME}/.local/include)
 include_directories($ENV{HOME}/.local/include/libnuraft)
 link_directories($ENV{HOME}/.local/lib)
 
-add_executable(client
-    src/client.cpp
-    api/kvstore.pb.cc
-    api/kvstore.grpc.pb.cc
-)
-target_include_directories(client PRIVATE include api)
-target_link_libraries(client
-    gRPC::grpc++
-    protobuf::libprotobuf
-)
+# add_executable(client
+#     src/client.cpp
+#     api/kvstore.pb.cc
+#     api/kvstore.grpc.pb.cc
+# )
+# target_include_directories(client PRIVATE include api)
+# target_link_libraries(client
+#     gRPC::grpc++
+#     protobuf::libprotobuf
+# )
 
 add_executable(myapp
     src/main.cpp
     src/server.cpp
     src/bptree.cpp
+    src/grpc_server.cpp
+    src/raft_inmem_log_store.cpp
+    src/raft_server.cpp
+    src/raft_state_machine.cpp
+    src/raft_state_mgr.cpp
     api/kvstore.pb.cc
     api/kvstore.grpc.pb.cc
 )
 target_include_directories(myapp PRIVATE include api)
 target_link_libraries(myapp
     gRPC::grpc++
+    gRPC::grpc++_reflection
     protobuf::libprotobuf
     nuraft
 )
