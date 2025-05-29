@@ -57,7 +57,7 @@ struct Page {
     Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
 };
 
-class BPlusTree {
+class BPTree {
 private:
     int rootPageID;
     int nextPageID = 0;
@@ -87,8 +87,8 @@ private:
     void flushAll();
 
 public:
-    BPlusTree(size_t cacheSize = MAX_CACHE_SIZE, const std::string &walFile = "tree_wal.log");
-    ~BPlusTree();
+    BPTree(size_t cacheSize = MAX_CACHE_SIZE, const std::string &walFile = "tree_wal.log");
+    ~BPTree();
     void insert(const ByteArray &key, const ByteArray &value);
     ByteArray search(const ByteArray &key);
     void remove(const ByteArray &key);

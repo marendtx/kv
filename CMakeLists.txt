@@ -29,7 +29,7 @@ target_link_libraries(client
 add_executable(myapp
     src/main.cpp
     src/server.cpp
-    src/b_plus_tree.cpp
+    src/bptree.cpp
     api/kvstore.pb.cc
     api/kvstore.grpc.pb.cc
 )
@@ -42,8 +42,8 @@ target_link_libraries(myapp
 
 find_package(GTest REQUIRED)
 add_executable(runTests
-    test/test_bplustree.cpp
-    src/b_plus_tree.cpp
+    test/test_bptree.cpp
+    src/bptree.cpp
 )
 target_include_directories(runTests PRIVATE include)
 target_link_libraries(runTests GTest::GTest GTest::Main pthread)
