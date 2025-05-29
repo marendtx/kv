@@ -15,16 +15,16 @@ include_directories($ENV{HOME}/.local/include)
 include_directories($ENV{HOME}/.local/include/libnuraft)
 link_directories($ENV{HOME}/.local/lib)
 
-# add_executable(client
-#     src/client.cpp
-#     api/kvstore.pb.cc
-#     api/kvstore.grpc.pb.cc
-# )
-# target_include_directories(client PRIVATE include api)
-# target_link_libraries(client
-#     gRPC::grpc++
-#     protobuf::libprotobuf
-# )
+add_executable(client
+    src/client.cpp
+    api/kvstore.pb.cc
+    api/kvstore.grpc.pb.cc
+)
+target_include_directories(client PRIVATE include api)
+target_link_libraries(client
+    gRPC::grpc++
+    protobuf::libprotobuf
+)
 
 add_executable(myapp
     src/main.cpp
