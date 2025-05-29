@@ -28,13 +28,13 @@ ByteArray RaftServer::getKey(const ByteArray &key) {
     return state_machine_->getKey(key);
 }
 int RaftServer::putKey(const ByteArray &key, const ByteArray &value) {
-    nuraft::ptr<nuraft::buffer> new_log = state_machine_->enc_log({key, value});
+    nuraft::ptr<nuraft::buffer> new_log = state_machine_->enc_log({fromBytes(key), fromBytes(value)});
     auto result = server_->append_entries({new_log});
     return result->get_result_code();
 }
 
 int RaftServer::deleteKey(const ByteArray &key) {
-    nuraft::ptr<nuraft::buffer> new_log = state_machine_->enc_log({key, {}});
+    nuraft::ptr<nuraft::buffer> new_log = state_machine_->enc_log({fromBytes(key), ""});
     auto result = server_->append_entries({new_log});
     return result->get_result_code();
 }

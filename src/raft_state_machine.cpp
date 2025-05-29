@@ -12,25 +12,36 @@ std::vector<std::pair<ByteArray, ByteArray>> RaftStateMachine::scan(const ByteAr
 };
 
 nuraft::ptr<nuraft::buffer> RaftStateMachine::enc_log(const op_payload &payload) {
-    nuraft::ptr<nuraft::buffer> ret = nuraft::buffer::alloc(sizeof(op_payload));
+    size_t total_size = sizeof(uint32_t) + payload.key.size() + sizeof(uint32_t) + payload.value.size();
+    nuraft::ptr<nuraft::buffer> ret = nuraft::buffer::alloc(total_size);
     nuraft::buffer_serializer bs(ret);
 
-    bs.put_raw(&payload, sizeof(op_payload));
+    bs.put_u32((uint32_t)payload.key.size());
+    bs.put_raw(payload.key.data(), payload.key.size());
+
+    bs.put_u32((uint32_t)payload.value.size());
+    bs.put_raw(payload.value.data(), payload.value.size());
 
     return ret;
 }
 
 void RaftStateMachine::dec_log(nuraft::buffer &log, op_payload &payload_out) {
-    assert(log.size() == sizeof(op_payload));
     nuraft::buffer_serializer bs(log);
-    memcpy(&payload_out, bs.get_raw(log.size()), sizeof(op_payload));
+
+    uint32_t key_size = bs.get_u32();
+    const char *key_data = reinterpret_cast<const char *>(bs.get_raw(key_size));
+    payload_out.key.assign(key_data, key_size);
+
+    uint32_t val_size = bs.get_u32();
+    const char *val_data = reinterpret_cast<const char *>(bs.get_raw(val_size));
+    payload_out.value.assign(val_data, val_size);
 }
 
 void RaftStateMachine::applyPayload(op_payload payload) {
     if (payload.value.empty()) {
-        tree_.remove(payload.key);
+        tree_.remove(toBytes(payload.key));
     } else {
-        tree_.insert(payload.key, payload.value);
+        tree_.insert(toBytes(payload.key), toBytes(payload.value));
     }
 };
 

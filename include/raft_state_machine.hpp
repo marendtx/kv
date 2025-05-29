@@ -11,8 +11,8 @@ private:
 
 public:
     struct op_payload {
-        ByteArray key;
-        ByteArray value;
+        std::string key;
+        std::string value;
     };
 
     ByteArray getKey(const ByteArray &key);
