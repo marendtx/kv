@@ -1,43 +1,26 @@
-#include <iostream>
-#include <memory>
-#include <string>
+#include "grpc_server.hpp"
+#include "libnuraft/nuraft.hxx"
+#include "raft_server.hpp"
+#include "raft_state_machine.hpp"
 
-#include "hello.grpc.pb.h"
-#include <grpcpp/grpcpp.h>
+std::unique_ptr<grpc::Server> server;
 
-using grpc::Server;
-using grpc::ServerBuilder;
-using grpc::ServerContext;
-using grpc::Status;
-using helloworld::HelloReply;
-using helloworld::HelloRequest;
-using helloworld::HelloService;
+void RunServer(int grpcPort, int raftPort, int raftId) {
+    std::string server_address("0.0.0.0:" + std::to_string(grpcPort));
+    nuraft::ptr<RaftStateMachine> sm = nuraft::cs_new<RaftStateMachine>();
+    nuraft::ptr<RaftServer> rs = nuraft::cs_new<RaftServer>(raftId, raftPort, sm);
 
-// サービスの実装
-class HelloServiceImpl final : public HelloService::Service {
-public:
-    Status SayHello(ServerContext *context, const HelloRequest *request,
-                    HelloReply *reply) override {
-        std::string prefix("Hello, ");
-        reply->set_message(prefix + request->name());
-        return Status::OK;
-    }
-};
+    GrpcServer::Service *service = new GrpcServer(rs);
 
-void RunServer() {
-    std::string server_address("0.0.0.0:50051");
-    HelloServiceImpl service;
-
-    ServerBuilder builder;
+    grpc::ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-    builder.RegisterService(&service);
-    std::unique_ptr<Server> server(builder.BuildAndStart());
+    builder.RegisterService(service);
+
+    grpc::reflection::InitProtoReflectionServerBuilderPlugin();
+
+    server = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address << std::endl;
 
     server->Wait();
-}
-
-int main() {
-    RunServer();
-    return 0;
+    delete service;
 }

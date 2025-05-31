@@ -1,3 +1,4 @@
+#include "bptree.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -13,11 +14,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-const int ORDER = 32;
-constexpr size_t MAX_CACHE_SIZE = 1024; // ページキャッシュ上限
-
-using ByteArray = std::vector<std::byte>;
 
 bool byteKeyLessEqual(const ByteArray &a, const ByteArray &b) {
     return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end()) || a == b;
@@ -49,16 +45,13 @@ void writeBytes(std::ofstream &ofs, const ByteArray &arr) {
         ofs.write(reinterpret_cast<const char *>(arr.data()), len);
 }
 
-enum class WalOp : uint8_t {
-    Insert = 1,
-    Remove = 2,
-};
+ByteArray toBytes(const std::string &s) {
+    return ByteArray(reinterpret_cast<const std::byte *>(s.data()), reinterpret_cast<const std::byte *>(s.data() + s.size()));
+}
 
-struct WalEntry {
-    WalOp op;
-    std::vector<std::byte> key;
-    std::vector<std::byte> value;
-};
+std::string fromBytes(const ByteArray &b) {
+    return std::string(reinterpret_cast<const char *>(b.data()), b.size());
+}
 
 void writeWalEntry(std::ofstream &ofs, const WalEntry &entry) {
     ofs.write(reinterpret_cast<const char *>(&entry.op), 1);
@@ -81,74 +74,14 @@ WalEntry readWalEntry(std::ifstream &ifs) {
     return entry;
 }
 
-struct Page {
-    int pageID;
-    bool isLeaf;
-    std::vector<ByteArray> keys;
-    std::vector<ByteArray> values;
-    std::vector<int> childrenIDs;
-    int nextLeafID = -1;
-    int parentID = -1;
-    bool dirty = false; // dirtyフラグ
-
-    Page(int id, bool leaf) : pageID(id), isLeaf(leaf) {}
-};
-
-class BPlusTree {
-private:
-    int rootPageID;
-    int nextPageID = 0;
-
-    // unique_ptrベース
-    std::list<std::pair<int, std::unique_ptr<Page>>> lruList;                                      // LRUリスト(先頭が最新)
-    std::unordered_map<int, std::list<std::pair<int, std::unique_ptr<Page>>>::iterator> pageCache; // pageID->list iterator
-
-    std::set<int> freeList;
-    std::string directory;
-    size_t maxCacheSize;
-
-    std::string walFilename = "tree_wal.log";
-    std::ofstream walWriter;
-
-    int createPage(bool isLeaf, int parentID = -1);
-    Page *getPage(int id);
-    void touchLRU(int id);
-    void insertInternal(const ByteArray &key, int parentID, int newChildID);
-    void rebalanceAfterDeletion(Page *cursor, int cursorID);
-    int findParentPageID(int currentID, int childID);
-    void writePageToDisk(Page *page);
-    static Page *readPageFromDisk(int pageID, const std::string &dir);
-    void setChildrenParentIDs(Page *parent);
-    void evictIfNeeded();
-    void flushPage(Page *page);
-    void flushAll();
-
-public:
-    BPlusTree(size_t cacheSize = MAX_CACHE_SIZE, const std::string &walFile = "tree_wal.log");
-    ~BPlusTree();
-    void insert(const ByteArray &key, const ByteArray &value);
-    ByteArray search(const ByteArray &key);
-    void remove(const ByteArray &key);
-    void insertFromWAL(const ByteArray &key, const ByteArray &value);
-    void removeFromWAL(const ByteArray &key);
-    void recoverFromWAL(const std::string &dir);
-    void saveTree(const std::string &dir);
-    void loadTree(const std::string &dir);
-    void visualize();
-    std::vector<std::pair<ByteArray, ByteArray>> rangeSearch(const ByteArray &min, const ByteArray &max);
-    void traverse();
-    bool checkParentPointers();
-    bool checkAllParentPointersStrict();
-};
-
 // -- destructor --
-BPlusTree::~BPlusTree() {
+BPTree::~BPTree() {
     flushAll();
     walWriter.close();
     lruList.clear();
     pageCache.clear();
 }
-BPlusTree::BPlusTree(size_t cacheSize, const std::string &walFile) : maxCacheSize(cacheSize), walFilename(walFile) {
+BPTree::BPTree(size_t cacheSize, const std::string &walFile) : maxCacheSize(cacheSize), walFilename(walFile) {
     rootPageID = createPage(true, -1);
     walWriter.open(walFilename, std::ios::binary | std::ios::app);
     if (!walWriter)
@@ -156,27 +89,27 @@ BPlusTree::BPlusTree(size_t cacheSize, const std::string &walFile) : maxCacheSiz
 }
 
 // flush1ページ
-void BPlusTree::flushPage(Page *page) {
+void BPTree::flushPage(Page *page) {
     if (page->dirty) {
         writePageToDisk(page);
         page->dirty = false;
     }
 }
 // キャッシュ全flush
-void BPlusTree::flushAll() {
+void BPTree::flushAll() {
     for (auto &pr : lruList) {
         flushPage(pr.second.get());
     }
 }
 // LRU更新（先頭に移動）
-void BPlusTree::touchLRU(int id) {
+void BPTree::touchLRU(int id) {
     auto it = pageCache.find(id);
     if (it != pageCache.end()) {
         lruList.splice(lruList.begin(), lruList, it->second);
     }
 }
 // eviction
-void BPlusTree::evictIfNeeded() {
+void BPTree::evictIfNeeded() {
     while (lruList.size() > maxCacheSize) {
         auto last = std::prev(lruList.end());
         Page *page = last->second.get();
@@ -186,7 +119,7 @@ void BPlusTree::evictIfNeeded() {
         lruList.erase(last);
     }
 }
-int BPlusTree::createPage(bool isLeaf, int parentID) {
+int BPTree::createPage(bool isLeaf, int parentID) {
     int id;
     if (!freeList.empty()) {
         id = *freeList.begin();
@@ -202,7 +135,7 @@ int BPlusTree::createPage(bool isLeaf, int parentID) {
     evictIfNeeded();
     return id;
 }
-Page *BPlusTree::getPage(int id) {
+Page *BPTree::getPage(int id) {
     auto it = pageCache.find(id);
     if (it != pageCache.end()) {
         touchLRU(id);
@@ -216,21 +149,21 @@ Page *BPlusTree::getPage(int id) {
     evictIfNeeded();
     return lruList.begin()->second.get();
 }
-void BPlusTree::setChildrenParentIDs(Page *parent) {
+void BPTree::setChildrenParentIDs(Page *parent) {
     for (int cid : parent->childrenIDs) {
         Page *child = getPage(cid);
         if (child)
             child->parentID = parent->pageID;
     }
 }
-int BPlusTree::findParentPageID(int currentID, int childID) {
+int BPTree::findParentPageID(int currentID, int childID) {
     Page *child = getPage(childID);
     if (!child)
         return -1;
     return child->parentID;
 }
 
-void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
+void BPTree::insertInternal(const ByteArray &key, int parentID, int newChildID) {
     Page *parent = getPage(parentID);
     int pos = 0;
     while (pos < parent->keys.size() && byteKeyLessEqual(parent->keys[pos], key))
@@ -283,7 +216,7 @@ void BPlusTree::insertInternal(const ByteArray &key, int parentID, int newChildI
     }
 }
 
-void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
+void BPTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     if (nodeID == rootPageID) {
         if (!node->isLeaf && node->childrenIDs.size() == 1) {
             rootPageID = node->childrenIDs[0];
@@ -435,7 +368,7 @@ void BPlusTree::rebalanceAfterDeletion(Page *node, int nodeID) {
     }
 }
 
-void BPlusTree::writePageToDisk(Page *page) {
+void BPTree::writePageToDisk(Page *page) {
     if (directory.empty())
         return;
     std::string filename = directory + "/page_" + std::to_string(page->pageID) + ".bin";
@@ -474,7 +407,7 @@ void BPlusTree::writePageToDisk(Page *page) {
         throw std::runtime_error("Failed to finish writing page file: " + filename);
     }
 }
-Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
+Page *BPTree::readPageFromDisk(int pageID, const std::string &dir) {
     if (dir.empty())
         throw std::runtime_error("Directory for readPageFromDisk is empty");
     std::string filename = dir + "/page_" + std::to_string(pageID) + ".bin";
@@ -532,7 +465,7 @@ Page *BPlusTree::readPageFromDisk(int pageID, const std::string &dir) {
     page->dirty = false;
     return page;
 }
-void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
+void BPTree::insert(const ByteArray &key, const ByteArray &value) {
     WalEntry entry{WalOp::Insert, key, value};
     writeWalEntry(walWriter, entry);
 
@@ -598,7 +531,7 @@ void BPlusTree::insert(const ByteArray &key, const ByteArray &value) {
         insertInternal(newKey, parentID, newLeafID);
     }
 }
-ByteArray BPlusTree::search(const ByteArray &key) {
+ByteArray BPTree::search(const ByteArray &key) {
     Page *cursor = getPage(rootPageID);
     while (!cursor->isLeaf) {
         auto it = std::upper_bound(cursor->keys.begin(), cursor->keys.end(), key, byteKeyLess);
@@ -612,7 +545,7 @@ ByteArray BPlusTree::search(const ByteArray &key) {
     }
     return {};
 }
-void BPlusTree::remove(const ByteArray &key) {
+void BPTree::remove(const ByteArray &key) {
     WalEntry entry{WalOp::Remove, key, {}};
     writeWalEntry(walWriter, entry);
 
@@ -635,7 +568,7 @@ void BPlusTree::remove(const ByteArray &key) {
     }
 }
 
-void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
+void BPTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
     if (rootPageID == -1) {
         rootPageID = createPage(true, -1); // 必ずrootを作成
     }
@@ -702,7 +635,7 @@ void BPlusTree::insertFromWAL(const ByteArray &key, const ByteArray &value) {
         insertInternal(newKey, parentID, newLeafID);
     }
 }
-void BPlusTree::removeFromWAL(const ByteArray &key) {
+void BPTree::removeFromWAL(const ByteArray &key) {
     if (rootPageID == -1)
         return;
 
@@ -725,7 +658,7 @@ void BPlusTree::removeFromWAL(const ByteArray &key) {
     }
 }
 
-void BPlusTree::recoverFromWAL(const std::string &dir) {
+void BPTree::recoverFromWAL(const std::string &dir) {
     flushAll();
     lruList.clear();
     pageCache.clear();
@@ -766,7 +699,7 @@ void BPlusTree::recoverFromWAL(const std::string &dir) {
     }
 }
 
-void BPlusTree::saveTree(const std::string &dir) {
+void BPTree::saveTree(const std::string &dir) {
     directory = dir;
     std::error_code ec;
     std::filesystem::create_directory(dir, ec);
@@ -788,7 +721,7 @@ void BPlusTree::saveTree(const std::string &dir) {
 
     flushAll();
 }
-void BPlusTree::loadTree(const std::string &dir) {
+void BPTree::loadTree(const std::string &dir) {
     flushAll(); // 念のため
     lruList.clear();
     pageCache.clear();
@@ -814,7 +747,7 @@ void BPlusTree::loadTree(const std::string &dir) {
     meta.close();
 }
 
-void BPlusTree::visualize() {
+void BPTree::visualize() {
     std::function<void(int, std::string, bool)> dfs =
         [&](int pageID, std::string prefix, bool isLast) {
             Page *p = getPage(pageID);
@@ -853,7 +786,7 @@ void BPlusTree::visualize() {
     std::cout << "B+ Tree Structure\n";
     dfs(rootPageID, "", true);
 }
-std::vector<std::pair<ByteArray, ByteArray>> BPlusTree::rangeSearch(const ByteArray &min, const ByteArray &max) {
+std::vector<std::pair<ByteArray, ByteArray>> BPTree::rangeSearch(const ByteArray &min, const ByteArray &max) {
     std::vector<std::pair<ByteArray, ByteArray>> result;
     Page *cursor = getPage(rootPageID);
     while (!cursor->isLeaf) {
@@ -877,7 +810,7 @@ std::vector<std::pair<ByteArray, ByteArray>> BPlusTree::rangeSearch(const ByteAr
     }
     return result;
 }
-void BPlusTree::traverse() {
+void BPTree::traverse() {
     Page *cursor = getPage(rootPageID);
     while (!cursor->isLeaf) {
         cursor = getPage(cursor->childrenIDs[0]);
@@ -895,7 +828,7 @@ void BPlusTree::traverse() {
     std::cout << std::endl;
 }
 
-bool BPlusTree::checkParentPointers() {
+bool BPTree::checkParentPointers() {
     std::set<int> visited;
     std::function<bool(int, int)> dfs = [&](int pageID, int parentID) {
         // getPageはconst外れるのでここはreadPageFromDiskを使うのが安全ですが、単体テスト時はキャッシュでOK
@@ -921,7 +854,7 @@ bool BPlusTree::checkParentPointers() {
     return ok;
 }
 
-bool BPlusTree::checkAllParentPointersStrict() {
+bool BPTree::checkAllParentPointersStrict() {
     std::unordered_map<int, std::unique_ptr<Page>> allPages;
     for (const auto &entry : std::filesystem::directory_iterator(directory)) {
         auto path = entry.path().string();
@@ -930,7 +863,7 @@ bool BPlusTree::checkAllParentPointersStrict() {
             size_t e = path.find(".bin");
             int pid = std::stoi(path.substr(s, e - s));
             try {
-                allPages[pid] = std::unique_ptr<Page>(BPlusTree::readPageFromDisk(pid, directory));
+                allPages[pid] = std::unique_ptr<Page>(BPTree::readPageFromDisk(pid, directory));
             } catch (...) {
                 return false;
             }

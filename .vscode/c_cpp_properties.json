@@ -4,8 +4,6 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/cpp/api",
-                "${workspaceFolder}/cpp/*",
                 "/home/marendtx/.local/include"
             ],
             "defines": [],
